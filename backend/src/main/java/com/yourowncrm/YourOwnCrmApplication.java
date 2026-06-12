@@ -1,0 +1,11 @@
+package com.yourowncrm;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class YourOwnCrmApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(YourOwnCrmApplication.class, args);
+    }
+}

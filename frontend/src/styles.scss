@@ -1,0 +1,320 @@
+@use "@angular/material" as mat;
+
+/* ── Angular Material theme (required to prevent console warning) ── */
+$crm-primary: mat.m2-define-palette(mat.$m2-teal-palette, 800);
+$crm-accent:  mat.m2-define-palette(mat.$m2-amber-palette, 600);
+$crm-warn:    mat.m2-define-palette(mat.$m2-red-palette);
+$crm-theme: mat.m2-define-light-theme((
+  color: (primary: $crm-primary, accent: $crm-accent, warn: $crm-warn)
+));
+@include mat.all-component-themes($crm-theme);
+
+/* ── Google Fonts ─────────────────────────────────────── */
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=DM+Sans:wght@300;400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/icon?family=Material+Icons");
+
+/* ── Design Tokens ────────────────────────────────────── */
+:root {
+  --jade:        #1a4a3a;
+  --jade-mid:    #2d6b55;
+  --jade-light:  #4a9478;
+  --jade-mist:   #e8f2ee;
+  --stone:       #f5f0eb;
+  --stone-mid:   #e8dfd6;
+  --stone-dark:  #c4b8ac;
+  --gold:        #c9a84c;
+  --gold-light:  #e8d48a;
+  --ivory:       #fdf9f5;
+  --ink:         #1c1c1c;
+  --ink-mid:     #4a4a4a;
+  --ink-light:   #7a7a7a;
+  --white:       #ffffff;
+  --danger:      #c0392b;
+  --warning:     #e67e22;
+  --success:     #27ae60;
+  --info:        #2980b9;
+  --sidebar-w:   220px;
+  --header-h:    56px;
+  --radius:      8px;
+  --radius-lg:   14px;
+  --shadow-sm:   0 1px 4px rgba(26,74,58,.10);
+  --shadow-md:   0 4px 16px rgba(26,74,58,.14);
+  --shadow-lg:   0 8px 40px rgba(26,74,58,.22);
+  --font-display:"Cormorant Garamond", Georgia, serif;
+  --font-body:   "DM Sans", system-ui, sans-serif;
+}
+
+/* ── Reset ────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font-body);
+  background: var(--stone);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; }
+
+/* ── Page header ──────────────────────────────────────── */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.page-title    { font-family: var(--font-display); font-size: 26px; color: var(--jade); }
+.page-subtitle { font-size: 13px; color: var(--ink-light); margin-top: 2px; }
+
+/* ── Card ─────────────────────────────────────────────── */
+.card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+/* ── Tables ───────────────────────────────────────────── */
+.crm-table { width: 100%; border-collapse: collapse; }
+.crm-table th {
+  background: var(--jade);
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 10px 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+.crm-table th:first-child { border-radius: var(--radius) 0 0 0; }
+.crm-table th:last-child  { border-radius: 0 var(--radius) 0 0; }
+.crm-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--stone-mid);
+  font-size: 13px;
+  vertical-align: middle;
+}
+.crm-table tr:hover td   { background: var(--jade-mist); }
+.crm-table tr:last-child td { border-bottom: none; }
+
+/* ── Buttons ──────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all .18s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--jade); color: var(--white); }
+.btn-primary:hover { background: var(--jade-mid); }
+.btn-outline { background: transparent; border: 1.5px solid var(--jade); color: var(--jade); }
+.btn-outline:hover { background: var(--jade-mist); }
+.btn-danger  { background: var(--danger); color: var(--white); }
+.btn-ghost   { background: transparent; color: var(--ink-mid); }
+.btn-ghost:hover { background: var(--stone-mid); }
+.btn-gold    { background: var(--gold); color: var(--white); }
+.btn-sm      { padding: 5px 10px; font-size: 12px; }
+.btn-icon    { padding: 7px; border-radius: 6px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Forms ────────────────────────────────────────────── */
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.form-control {
+  padding: 9px 12px;
+  border: 1.5px solid var(--stone-dark);
+  border-radius: var(--radius);
+  font-family: var(--font-body);
+  font-size: 14px;
+  background: var(--white);
+  color: var(--ink);
+  transition: border-color .15s;
+  outline: none;
+  width: 100%;
+}
+.form-control:focus {
+  border-color: var(--jade-light);
+  box-shadow: 0 0 0 3px rgba(74,148,120,.15);
+}
+select.form-control   { cursor: pointer; }
+textarea.form-control { resize: vertical; }
+.form-control:disabled { background: var(--stone); color: var(--ink-light); cursor: not-allowed; }
+
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.gfull { grid-column: 1 / -1; }
+
+/* ── Badges ───────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-success { background: #d4f0e0; color: #1a7a45; }
+.badge-warning { background: #fef0d8; color: #9a5e0a; }
+.badge-danger  { background: #fde8e6; color: #9a1f17; }
+.badge-info    { background: #ddeefb; color: #1a5c8a; }
+.badge-neutral { background: var(--stone-mid); color: var(--ink-mid); }
+.badge-purple  { background: #f0e6fb; color: #6c3483; }
+
+/* ── Filters bar ──────────────────────────────────────── */
+.filters {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+/* ── Toggle switch ────────────────────────────────────── */
+.toggle-wrap { display: flex; align-items: center; gap: 8px; }
+.toggle      { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-slider {
+  position: absolute; inset: 0;
+  background: var(--stone-dark);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: .2s;
+}
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  width: 16px; height: 16px;
+  left: 3px; top: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: .2s;
+}
+.toggle input:checked + .toggle-slider           { background: var(--jade); }
+.toggle input:checked + .toggle-slider::before   { transform: translateX(18px); }
+
+/* ── Modal overlay ────────────────────────────────────── */
+.crm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26,74,58,.45);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.crm-modal {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 90%;
+  max-width: 640px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.crm-modal.modal-wide { max-width: 800px; }
+.crm-modal.modal-sm   { max-width: 460px; }
+.modal-header {
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--stone-mid);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.modal-header h3 { font-family: var(--font-display); font-size: 22px; color: var(--jade); }
+.modal-body   { padding: 20px 24px; overflow-y: auto; flex: 1; }
+.modal-footer {
+  padding: 14px 24px;
+  border-top: 1px solid var(--stone-mid);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+  background: var(--white);
+}
+.close-btn {
+  background: none; border: none;
+  font-size: 20px; cursor: pointer;
+  color: var(--ink-light); line-height: 1;
+}
+.close-btn:hover { color: var(--jade); }
+
+/* ── Color swatch ─────────────────────────────────────── */
+.color-swatch {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 4px;
+  border: 1px solid rgba(0,0,0,.1);
+}
+
+/* ── Role badges ──────────────────────────────────────── */
+.role-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.role-super-admin { background: #f0e6fb; color: #6c3483; }
+.role-manager     { background: #ddeefb; color: #1a5c8a; }
+.role-staff       { background: #d4f0e0; color: #1a7a45; }
+.role-resource    { background: #fef0d8; color: #9a5e0a; }
+
+/* ── Snackbar ─────────────────────────────────────────── */
+.mat-mdc-snack-bar-container { --mdc-snackbar-container-color: var(--jade); }
+
+
+
+/* ── Dialog panel — force true viewport center ────────────── */
+/* Override Angular Material CDK overlay positioning           */
+.cdk-overlay-container {
+  position: fixed !important;
+  z-index: 1000 !important;
+}
+.cdk-global-overlay-wrapper {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  pointer-events: none;
+}
+.cdk-overlay-pane {
+  pointer-events: auto;
+  max-width: 95vw !important;
+  max-height: 90vh !important;
+}
+/* Named panel class used by schedule dialog opens */
+.crm-dialog-panel {
+  border-radius: var(--radius-lg) !important;
+  overflow: hidden !important;
+}
+.crm-dialog-panel .mat-mdc-dialog-container {
+  padding: 0 !important;
+  border-radius: var(--radius-lg) !important;
+  overflow: hidden !important;
+}
+.cdk-overlay-pane {
+  max-width: 95vw !important;
+}
+/* Override any position offset — dialog must always be centered */
+.cdk-global-overlay-wrapper {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}

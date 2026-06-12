@@ -1,0 +1,33 @@
+# Copy this file to application.yml and fill in your values.
+# application.yml is in .gitignore and should NEVER be committed.
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/yourowncrm
+    username: yourowncrm
+    password: YOUR_DB_PASSWORD_HERE
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+server:
+  port: 8085
+
+app:
+  jwt:
+    secret: YOUR_JWT_SECRET_MIN_32_CHARS_HERE
+    expiration-ms: 86400000
+  cors:
+    allowed-origins: http://localhost:4200
+
+logging:
+  level:
+    root: INFO
+    com.yourowncrm: DEBUG
+  file:
+    name: logs/yourowncrm.log
