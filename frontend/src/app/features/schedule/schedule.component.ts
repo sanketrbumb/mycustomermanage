@@ -533,19 +533,33 @@ export class ScheduleComponent implements OnInit, OnDestroy {
       const hoursMap = new Map<string, { start: number; end: number }>();
       const bandsMap = new Map<string, Array<{start:number;end:number;color:string;solidColor:string;locationName:string}>>();
 
-      const today = new Date();
-      const dayName = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][today.getDay()];
+      // Use the date currently shown on the schedule grid, not literally
+      // "today" — so navigating to a different date shows that date's bands.
+      const viewDate    = this.state.currentDate;
+      const viewDateStr = viewDate.toISOString().slice(0, 10);
+      const dayName = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][viewDate.getDay()];
 
       results.forEach((schedules, i) => {
         if (!schedules || !schedules.length) return;
         const key = entries[i].key;
 
-        // Filter to today's day
-        const todayScheds = schedules.filter((s: any) =>
-          s.open && s.dayOfWeek?.toUpperCase() === dayName
-        );
+        // Filter to the viewed day AND within the row's effective date range
+        // (startDate required, endDate optional — null endDate = always active)
+        const todayScheds = schedules.filter((s: any) => {
+          if (!s.open || s.dayOfWeek?.toUpperCase() !== dayName) return false;
+          if (s.startDate && viewDateStr < s.startDate) return false;
+          if (s.endDate   && viewDateStr > s.endDate)   return false;
+          return true;
+        });
 
-        const allOpen = schedules.filter((s: any) => s.open);
+        // Same effective-date-range filter, but across ALL days (for the
+        // dynamic hour range calc, which considers the whole week's hours)
+        const allOpen = schedules.filter((s: any) => {
+          if (!s.open) return false;
+          if (s.startDate && viewDateStr < s.startDate) return false;
+          if (s.endDate   && viewDateStr > s.endDate)   return false;
+          return true;
+        });
 
         // Working hours range across all days (for dynamic grid range)
         if (allOpen.length) {

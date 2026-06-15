@@ -6,7 +6,7 @@ import { HttpClient } from "@angular/common/http";
 import { AdminService } from "../../../core/services/admin.service";
 import { Resource, User, Location } from "../../../shared/models/admin.model";
 import { environment } from "../../../../environments/environment";
-import { forkJoin, of } from "rxjs";
+import { of } from "rxjs";
 import { catchError } from "rxjs/operators";
 
 const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
@@ -17,8 +17,20 @@ const DAY_TO_ENUM: Record<string, string> = {
   Thursday: "THURSDAY", Friday: "FRIDAY", Saturday: "SATURDAY", Sunday: "SUNDAY"
 };
 
-interface DayHours   { enabled: boolean; start: string; end: string; }
-interface HoursConfig { id: number | null; locationId: number | null; priority: number; days: Record<string,DayHours>; }
+interface DayHours {
+  enabled: boolean;
+  start: string;
+  end: string;
+  locationId: number | null;  // null = All Locations
+}
+interface HoursConfig {
+  priority: number;
+  startDate: string;          // required — yyyy-MM-dd
+  endDate: string | null;      // optional — null = always active
+  days: Record<string, DayHours>;
+}
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
 
 @Component({
   selector: "app-resource-hours",
@@ -96,20 +108,25 @@ interface HoursConfig { id: number | null; locationId: number | null; priority: 
         <div class="card" style="margin-bottom:16px;overflow:hidden;">
 
           <!-- Card header -->
-          <div style="display:flex;align-items:center;gap:10px;padding:12px 18px;
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 18px;flex-wrap:wrap;
                       background:var(--stone);border-bottom:1px solid var(--stone-mid);">
             <span class="badge badge-info">
               Config #{{ ci + 1 }}{{ ci === 0 ? " — Primary" : "" }}
             </span>
-            <div class="form-group" style="margin:0;flex:1;max-width:240px;">
-              <select class="form-control" style="font-size:12px;padding:5px 8px;"
-                      [(ngModel)]="cfg.locationId">
-                <option [ngValue]="null">All locations</option>
-                @for (loc of locations(); track loc.id) {
-                  <option [ngValue]="loc.id">{{ loc.name }}</option>
-                }
-              </select>
+
+            <!-- Date range -->
+            <div style="display:flex;align-items:center;gap:6px;">
+              <label class="form-label" style="margin:0;font-size:11px;">Start Date *</label>
+              <input type="date" class="form-control" style="font-size:12px;padding:5px 8px;width:140px;"
+                     [(ngModel)]="cfg.startDate"/>
+              <label class="form-label" style="margin:0 0 0 6px;font-size:11px;">End Date</label>
+              <input type="date" class="form-control" style="font-size:12px;padding:5px 8px;width:140px;"
+                     [(ngModel)]="cfg.endDate" placeholder="Always active"/>
+              @if (!cfg.endDate) {
+                <span class="badge badge-success" style="font-size:10px;">Always Active</span>
+              }
             </div>
+
             <div style="margin-left:auto;display:flex;gap:4px;">
               @if (ci > 0) {
                 <button class="btn btn-ghost btn-sm btn-icon"
@@ -137,14 +154,15 @@ interface HoursConfig { id: number | null; locationId: number | null; priority: 
           </div>
 
           <!-- Days table -->
-          <div style="padding:4px 0 8px;">
-            <table style="width:100%;border-collapse:collapse;">
+          <div style="padding:4px 0 8px;overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;min-width:680px;">
               <thead>
                 <tr>
                   <th class="day-th" style="width:44px;text-align:center;">On</th>
                   <th class="day-th">Day</th>
                   <th class="day-th">Opens</th>
                   <th class="day-th">Closes</th>
+                  <th class="day-th">Location</th>
                   <th class="day-th">Status</th>
                 </tr>
               </thead>
@@ -172,10 +190,25 @@ interface HoursConfig { id: number | null; locationId: number | null; priority: 
                              [disabled]="!cfg.days[day].enabled"/>
                     </td>
                     <td class="day-td">
+                      <select class="form-control" style="font-size:12px;padding:5px 8px;min-width:150px;"
+                              [(ngModel)]="cfg.days[day].locationId"
+                              [disabled]="!cfg.days[day].enabled">
+                        <option [ngValue]="null">All Locations</option>
+                        @for (loc of locations(); track loc.id) {
+                          <option [ngValue]="loc.id">{{ loc.name }}</option>
+                        }
+                      </select>
+                    </td>
+                    <td class="day-td">
                       @if (cfg.days[day].enabled) {
                         <span class="badge badge-success">
                           {{ cfg.days[day].start }} – {{ cfg.days[day].end }}
                         </span>
+                        @if (cfg.days[day].locationId) {
+                          <span class="badge badge-info" style="margin-left:4px;">
+                            {{ locationName(cfg.days[day].locationId) }}
+                          </span>
+                        }
                       } @else {
                         <span class="badge badge-neutral">Closed</span>
                       }
@@ -229,6 +262,11 @@ export class ResourceHoursComponent implements OnInit {
     this.adminSvc.getLocations().subscribe(l => this.locations.set(l));
   }
 
+  locationName(id: number | null): string {
+    if (!id) return "";
+    return this.locations().find(l => l.id === id)?.name ?? "";
+  }
+
   // Parse "RESOURCE_1" → { entityType: "RESOURCE", entityId: 1 }
   private parseKey(key: string): { entityType: string; entityId: number } {
     const idx  = key.indexOf("_");
@@ -265,8 +303,13 @@ export class ResourceHoursComponent implements OnInit {
      });
   }
 
+  /**
+   * Groups rows by priority into config cards. Each row carries its own
+   * locationId, startDate, and endDate now — the date range is read from
+   * the FIRST row in each priority group (all rows in a group should share
+   * the same date range, since they're saved together as one config).
+   */
   private parseSchedules(schedules: any[]): HoursConfig[] {
-    // Group rows by priority — each priority = one config card
     const byPriority = new Map<number, any[]>();
     schedules.forEach(s => {
       const p = s.priority ?? 0;
@@ -276,10 +319,10 @@ export class ResourceHoursComponent implements OnInit {
     return Array.from(byPriority.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([priority, items]) => ({
-        id:         items[0].id ?? null,
-        locationId: items[0].locationId ?? null,
         priority,
-        days:       this.buildDaysFromRows(items),
+        startDate: items[0]?.startDate ?? todayStr(),
+        endDate:   items[0]?.endDate   ?? null,
+        days:      this.buildDaysFromRows(items),
       }));
   }
 
@@ -290,9 +333,10 @@ export class ResourceHoursComponent implements OnInit {
         r.dayOfWeek?.toUpperCase() === DAY_TO_ENUM[day]
       );
       d[day] = {
-        enabled: row?.open ?? false,
-        start:   row?.openTime  ?? "09:00",
-        end:     row?.closeTime ?? "18:00",
+        enabled:    row?.open ?? false,
+        start:      row?.openTime  ?? "09:00",
+        end:        row?.closeTime ?? "18:00",
+        locationId: row?.locationId ?? null,
       };
     });
     return d;
@@ -301,14 +345,19 @@ export class ResourceHoursComponent implements OnInit {
   private defaultDays(): Record<string, DayHours> {
     const d: Record<string, DayHours> = {};
     DAYS.forEach((day, i) => {
-      d[day] = { enabled: i < 5, start: "09:00", end: "18:00" };
+      d[day] = { enabled: i < 5, start: "09:00", end: "18:00", locationId: null };
     });
     return d;
   }
 
   addConfig() {
     const cfgs = [...this.configs()];
-    cfgs.push({ id: null, locationId: null, priority: cfgs.length, days: this.defaultDays() });
+    cfgs.push({
+      priority: cfgs.length,
+      startDate: todayStr(),
+      endDate: null,
+      days: this.defaultDays(),
+    });
     this.configs.set(cfgs);
   }
 
@@ -346,52 +395,66 @@ export class ResourceHoursComponent implements OnInit {
     const mon  = { ...cfgs[ci].days["Monday"] };
     DAYS.slice(1).forEach(d => { cfgs[ci].days[d] = { ...mon }; });
     this.configs.set(cfgs);
-    this.snack.open("Monday hours copied to all days.", "×", { duration: 2000 });
+    this.snack.open("Monday hours (including location) copied to all days.", "×", { duration: 2000 });
   }
 
+  /**
+   * Saves the ENTIRE schedule for the selected entity in a SINGLE bulk
+   * PUT request — replaces the previous "14 parallel POST requests" approach
+   * which had a race condition (each request independently read existing
+   * rows before others committed, so only the last-committing request's
+   * data would actually persist — this is why only the second
+   * configuration appeared to save).
+   */
   saveHours() {
     if (!this.selectedKey) return;
+
+    // Validate start dates are present
+    for (const cfg of this.configs()) {
+      if (!cfg.startDate) {
+        this.snack.open("Start Date is required for every configuration.", "×", { duration: 3500 });
+        return;
+      }
+      if (cfg.endDate && cfg.endDate < cfg.startDate) {
+        this.snack.open("End Date cannot be before Start Date.", "×", { duration: 3500 });
+        return;
+      }
+    }
+
     this.saving.set(true);
     const { entityType, entityId } = this.parseKey(this.selectedKey);
 
-    // Build one row per enabled day per config
+    // Build one row per day per config — each row carries its own
+    // locationId, startDate, endDate
     const rows: any[] = [];
     this.configs().forEach(cfg => {
       DAYS.forEach(day => {
         const dh = cfg.days[day];
         rows.push({
-          entityType:  entityType,
-          entityId:    entityId,
-          locationId:  cfg.locationId,
-          priority:    cfg.priority,
           dayOfWeek:   DAY_TO_ENUM[day],
+          priority:    cfg.priority,
           open:        dh.enabled,
           openTime:    dh.start,
           closeTime:   dh.end,
+          locationId:  dh.locationId,
+          startDate:   cfg.startDate,
+          endDate:     cfg.endDate,
         });
       });
     });
 
-    // POST each row — backend upserts by entityType + entityId + dayOfWeek + priority
-    const calls = rows.map(row =>
-      this.http.post(`${environment.apiUrl}/resource-schedules`, row)
-               .pipe(catchError(e => of({ error: e })))
-    );
-
-    forkJoin(calls).subscribe({
-      next: results => {
+    this.http.put<any[]>(
+      `${environment.apiUrl}/resource-schedules?entityType=${entityType}&entityId=${entityId}`,
+      { rows }
+    ).subscribe({
+      next: () => {
         this.saving.set(false);
-        const errors = results.filter((r: any) => r?.error);
-        if (errors.length) {
-          this.snack.open("Some rows failed to save. Check logs.", "×", { duration: 4000 });
-        } else {
-          this.snack.open("Hours saved successfully.", "×", { duration: 3000 });
-          this.onSelect(); // Reload to show saved state
-        }
+        this.snack.open("Hours saved successfully.", "×", { duration: 3000 });
+        this.onSelect(); // Reload to show saved state
       },
-      error: () => {
+      error: e => {
         this.saving.set(false);
-        this.snack.open("Save failed. Check server logs.", "×", { duration: 4000 });
+        this.snack.open(e.error?.message ?? "Save failed. Check server logs.", "×", { duration: 4000 });
       }
     });
   }
