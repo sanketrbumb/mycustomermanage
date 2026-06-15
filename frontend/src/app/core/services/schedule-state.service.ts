@@ -1,4 +1,5 @@
 import { Injectable, signal } from "@angular/core";
+import { Appointment } from "../../shared/models/appointment.model";
 import { Resource, Location, User } from "../../shared/models/admin.model";
 
 @Injectable({ providedIn: "root" })
@@ -17,4 +18,5 @@ export class ScheduleStateService {
   currentDate: Date = new Date();
   view: string = "day";
   initialized = false;
+  appointments = signal<Appointment[]>([]);
 }
