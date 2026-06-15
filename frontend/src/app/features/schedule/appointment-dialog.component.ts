@@ -531,80 +531,117 @@ export class AppointmentDialogComponent implements OnInit {
 
   cancel() { this.dialogRef.close(false); }
 
+  // ── Unified pattern for all sub-screens (Visit Notes, All Visits, Logs, Collect Payment) ──
+  // 1. Validate + save the appointment (create or update) — same as the Save button
+  // 2. Show "Appointment saved. Opening <X>…" message
+  // 3. Close THIS dialog
+  // 4. After a short delay (lets the CDK overlay tear down cleanly — fixes the
+  //    "renders at bottom of page" bug), open the target dialog CENTERED
+  //
+  // This guarantees: (a) no data loss — every popup saves first,
+  // (b) consistent centered positioning for every popup.
+
   collectPayment() {
-    if (!this.data.appointment) {
-      this.snack.open("Save the appointment first, then collect payment.", "×", { duration: 3000 });
-      return;
-    }
-    // Open quick pay ON TOP of appointment dialog — do NOT close appointment first
-    (document.activeElement as HTMLElement)?.blur();
-    this.dialog.open(QuickPayDialogComponent, {
-      width: "480px",
-      data: { appointment: this.data.appointment },
-      disableClose: false,
+    this.saveThenOpen("Collect Payment", appt => {
+      this.dialog.open(QuickPayDialogComponent, {
+        width: "480px",
+        data: { appointment: appt },
+        disableClose: false,
+      });
     });
   }
 
   openAllVisits() {
-    if (!this.data.appointment?.customerId) return;
-    (document.activeElement as HTMLElement)?.blur();
-    this.dialog.open(AllVisitsDialogComponent, {
-      width: "860px",
-      maxHeight: "90vh",
-      data: {
-        customerId:       this.data.appointment.customerId,
-        customerFullName: this.data.appointment.customerFullName,
-        currentApptId:    this.data.appointment.id,
-      }
+    if (!this.data.appointment?.customerId && !this.selectedCustomer()?.id) {
+      this.snack.open("Select a customer first.", "×", { duration: 3000 });
+      return;
+    }
+    this.saveThenOpen("All Visits", appt => {
+      this.dialog.open(AllVisitsDialogComponent, {
+        width: "860px",
+        maxHeight: "90vh",
+        data: {
+          customerId:       appt.customerId,
+          customerFullName: appt.customerFullName,
+          currentApptId:    appt.id,
+        }
+      });
     });
   }
 
   openVisitNotes() {
-    if (!this.data.appointment?.id) {
-      this.snack.open("Save the appointment first, then open Visit Notes.", "×", { duration: 3000 });
-      return;
-    }
-    // Save first if form is dirty, then close and open Visit Notes
-    (document.activeElement as HTMLElement)?.blur();
-    this.dialogRef.close(false);
-    // Small delay so Angular can clean up the first dialog CDK overlay
-    // before opening the second — prevents the "bottom of page" positioning bug
-    setTimeout(() => {
+    this.saveThenOpen("Visit Notes", appt => {
       this.dialog.open(VisitNotesDialogComponent, {
         width: "820px",
         maxHeight: "90vh",
         data: {
-          appointmentId:    this.data.appointment.id,
-          customerFullName: this.data.appointment.customerFullName,
-          apptDate:         this.data.appointment.apptDate,
+          appointmentId:    appt.id,
+          customerFullName: appt.customerFullName,
+          apptDate:         appt.apptDate,
         },
         disableClose: true,
       });
-    }, 200);
+    });
   }
 
   openLogs() {
-    if (!this.data.appointment?.id) return;
-    // Same pattern as Visit Notes — close this dialog first, then open
-    // Logs centered. Stacking on top was causing it to render at the
-    // bottom of the page due to inherited overlay position.
-    (document.activeElement as HTMLElement)?.blur();
-    this.dialogRef.close(false);
-    setTimeout(() => {
+    this.saveThenOpen("Audit Logs", appt => {
       this.dialog.open(AuditLogsDialogComponent, {
         width: "620px",
         maxHeight: "80vh",
-        data: { appointment: this.data.appointment },
+        data: { appointment: appt },
       });
-    }, 200);
+    });
   }
 
-  // ── Save with double-booking + outside-hours warnings ─────────
-  save() {
-    if (this.form.invalid) { this.form.markAllAsTouched(); return; }
-    const val  = this.form.getRawValue();
-    const key  = val.resourceKey ?? "";
-    const idx  = key.indexOf("_"), type = key.substring(0, idx), id = Number(key.substring(idx+1));
+  /**
+   * Validates and saves the appointment (create or update), then closes this
+   * dialog and opens the target dialog centered after a short delay.
+   * If the form is invalid or save fails, the target dialog is NOT opened
+   * and the appointment dialog stays open so the user can fix the issue.
+   */
+  private saveThenOpen(targetName: string, openFn: (appt: Appointment) => void) {
+    if (this.form.invalid) {
+      this.form.markAllAsTouched();
+      this.snack.open(`Please complete required fields before opening ${targetName}.`, "×", { duration: 3500 });
+      return;
+    }
+
+    const payload = this.buildPayload();
+    this.saving.set(true);
+    this.conflictMsg.set("");
+
+    // Skip availability re-check here — if the user already passed it via Save,
+    // or hasn't changed anything that affects scheduling, just persist current values.
+    // Use allowDoubleBook/allowOutsideHours = true to avoid blocking navigation
+    // to sub-screens on pre-existing (already-saved) conflicts.
+    payload.allowDoubleBook   = true;
+    payload.allowOutsideHours = true;
+
+    const req = this.data.appointment
+      ? this.apptSvc.update(this.data.appointment.id, payload)
+      : this.apptSvc.create(payload);
+
+    req.subscribe({
+      next: (appt: Appointment) => {
+        this.saving.set(false);
+        this.snack.open(`Appointment saved. Opening ${targetName}…`, "×", { duration: 2000 });
+        (document.activeElement as HTMLElement)?.blur();
+        this.dialogRef.close(true); // true = schedule should refresh
+        setTimeout(() => openFn(appt), 200);
+      },
+      error: e => {
+        this.saving.set(false);
+        this.conflictMsg.set(e.error?.message ?? "Could not save appointment.");
+      }
+    });
+  }
+
+  /** Extracts the current form values into an AppointmentRequest payload. */
+  private buildPayload(): any {
+    const val = this.form.getRawValue();
+    const key = val.resourceKey ?? "";
+    const idx = key.indexOf("_"), type = key.substring(0, idx), id = Number(key.substring(idx+1));
 
     const payload: any = {
       customerId:           val.customerId,
@@ -624,7 +661,13 @@ export class AppointmentDialogComponent implements OnInit {
     };
     if (type==="RES")   payload.resourceId      = id;
     if (type==="STAFF") payload.staffResourceId = id;
+    return payload;
+  }
 
+  // ── Save with double-booking + outside-hours warnings ─────────
+  save() {
+    if (this.form.invalid) { this.form.markAllAsTouched(); return; }
+    const payload = this.buildPayload();
     this.pendingPayload = payload;
     this.checking.set(true);
     this.conflictMsg.set("");

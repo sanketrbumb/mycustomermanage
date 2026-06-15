@@ -277,7 +277,7 @@ export class ResourceHoursComponent implements OnInit {
       .sort((a, b) => a[0] - b[0])
       .map(([priority, items]) => ({
         id:         items[0].id ?? null,
-        locationId: items[0].location?.id ?? null,
+        locationId: items[0].locationId ?? null,
         priority,
         days:       this.buildDaysFromRows(items),
       }));

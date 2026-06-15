@@ -516,12 +516,7 @@ export class ScheduleComponent implements OnInit, OnDestroy {
   private loadWorkingHours() {
     const resources = this.state.resources();
     const staff     = this.activeStaff();
-    const locations = this.state.locations();
     if (!resources.length && !staff.length) return;
-
-    // Build location color lookup
-    const locColor = new Map<number, { color: string; name: string }>();
-    locations.forEach(l => locColor.set(l.id, { color: l.colorHex || '#1a4a3a', name: l.name }));
 
     type Entry = { key: string; entityType: string; entityId: number };
     const entries: Entry[] = [
@@ -559,18 +554,17 @@ export class ScheduleComponent implements OnInit, OnDestroy {
           hoursMap.set(key, { start: Math.min(...starts), end: Math.max(...ends) });
         }
 
-        // Location color bands for TODAY only
+        // Location color bands for TODAY only — locationColor now comes
+        // directly from the backend DTO (no client-side lookup needed)
         const bands: Array<{start:number;end:number;color:string;solidColor:string;locationName:string}> = [];
         todayScheds.forEach((s: any) => {
-          const locId = s.location?.id ?? s.locationId;
-          const locInfo = locId ? locColor.get(locId) : null;
-          if (locInfo) {
+          if (s.locationColor) {
             bands.push({
               start: parseInt((s.openTime  ?? "07:00").split(":")[0]),
               end:   parseInt((s.closeTime ?? "19:00").split(":")[0]),
-              color: locInfo.color + '2a',  // ~16% opacity background fill
-              solidColor: locInfo.color,     // full color for left border
-              locationName: locInfo.name
+              color: s.locationColor + '2a',  // ~16% opacity background fill
+              solidColor: s.locationColor,     // full color for left border
+              locationName: s.locationName ?? "Location"
             });
           }
         });
