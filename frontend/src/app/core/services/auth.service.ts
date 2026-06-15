@@ -27,6 +27,15 @@ export class AuthService {
   }
 
   logout() {
+    // Fire-and-forget audit log entry on the server before clearing the token.
+    // Don't block navigation on this — use the token that's about to be removed.
+    const token = this.getToken();
+    if (token) {
+      this.http.post(`${environment.apiUrl}/auth/logout`, {}).subscribe({
+        next: () => {},
+        error: () => {} // logout proceeds regardless of audit call outcome
+      });
+    }
     localStorage.removeItem(this.TOKEN_KEY);
     this.currentUser.set(null);
     this.router.navigate(["/login"]);

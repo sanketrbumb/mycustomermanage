@@ -46,5 +46,6 @@ public class JwtTokenProvider {
     }
 
     public Long getUserId(String token) { return Long.valueOf(parseToken(token).getSubject()); }
+    public String getUsername(String token) { return parseToken(token).get("username", String.class); }
     public UUID getTenantId(String token) { return UUID.fromString(parseToken(token).get("tenantId", String.class)); }
 }

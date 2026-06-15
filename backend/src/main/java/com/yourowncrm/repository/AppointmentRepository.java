@@ -83,4 +83,16 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
             @Param("to")       LocalDate to);
     // All visits for a customer
     List<Appointment> findByTenantIdAndCustomerIdOrderByApptDateDescStartTimeDesc(UUID tenantId, Long customerId);
+
+    @org.springframework.data.jpa.repository.Query(
+        "SELECT a FROM Appointment a WHERE a.tenantId = :tenantId " +
+        "AND a.customer.id = :customerId AND a.apptDate = :apptDate " +
+        "AND a.id <> :excludeId AND a.visitStatus.terminal = false"
+    )
+    List<Appointment> findActiveByCustomerAndDate(
+        @org.springframework.data.repository.query.Param("tenantId") UUID tenantId,
+        @org.springframework.data.repository.query.Param("customerId") Long customerId,
+        @org.springframework.data.repository.query.Param("apptDate") java.time.LocalDate apptDate,
+        @org.springframework.data.repository.query.Param("excludeId") Long excludeId);
+    java.util.List<Appointment> findByTenantIdAndApptDateBetweenOrderByApptDateAscStartTimeAsc(java.util.UUID tenantId, java.time.LocalDate from, java.time.LocalDate to);
 }

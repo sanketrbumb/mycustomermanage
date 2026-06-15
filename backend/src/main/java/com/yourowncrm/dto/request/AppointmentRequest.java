@@ -16,6 +16,8 @@ public class AppointmentRequest {
     @NotNull private LocalTime startTime;
     @NotNull private LocalTime endTime;
     private Long excludeAppointmentId;
+    private Boolean allowDoubleBook;
+    private Boolean allowOutsideHours;
     private BigDecimal chargeAmount = BigDecimal.ZERO;
     private String notes;
 
@@ -42,6 +44,12 @@ public class AppointmentRequest {
     public void setEndTime(LocalTime v) { this.endTime=v; }
     public Long getExcludeAppointmentId() { return excludeAppointmentId; }
     public void setExcludeAppointmentId(Long v) { this.excludeAppointmentId=v; }
+    public Boolean getAllowDoubleBook() { return allowDoubleBook; }
+    public void setAllowDoubleBook(Boolean v) { this.allowDoubleBook=v; }
+    public Boolean getAllowOutsideHours() { return allowOutsideHours; }
+    public void setAllowOutsideHours(Boolean v) { this.allowOutsideHours=v; }
+    public boolean isAllowDoubleBook()    { return Boolean.TRUE.equals(allowDoubleBook); }
+    public boolean isAllowOutsideHours()  { return Boolean.TRUE.equals(allowOutsideHours); }
     public BigDecimal getChargeAmount() { return chargeAmount; }
     public void setChargeAmount(BigDecimal v) { this.chargeAmount=v; }
     public String getNotes() { return notes; }

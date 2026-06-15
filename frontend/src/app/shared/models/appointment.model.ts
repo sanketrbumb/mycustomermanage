@@ -40,11 +40,15 @@ export interface AppointmentRequest {
   chargeAmount?: number;
   notes?: string;
   excludeAppointmentId?: number;
+  allowDoubleBook?: boolean;
+  allowOutsideHours?: boolean;
 }
 
 export interface AvailabilityConflict {
   available: boolean;
   reason?: string;
+  conflictType?: "DOUBLE_BOOK" | "OUTSIDE_HOURS" | "SAME_PATIENT_SAME_DAY";
+  overridable?: boolean;
   conflictingAppointmentId?: number;
   conflictingCustomerName?: string;
   date?: string;

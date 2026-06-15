@@ -1,6 +1,8 @@
 # ── Backend ────────────────────────────────────────
 backend/target/
-backend/logs/
+backend/logs/*.log
+backend/logs/*.log.*
+!backend/logs/.gitkeep
 *.class
 *.jar
 *.war

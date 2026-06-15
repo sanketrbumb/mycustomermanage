@@ -1,0 +1,930 @@
+From 8653d9a1c152bdafaf2d7b4c15881aca54ab6c93 Mon Sep 17 00:00:00 2001
+From: Sanket Bumb <sanket@yourowncrm.com>
+Date: Sun, 14 Jun 2026 04:17:51 +0000
+Subject: [PATCH] fix: location dropdown, booking warnings, audit logging,
+ location color bands
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Appointment dialog:
+- Location search dropdown: fixed missing position:relative wrapper that
+  caused the dropdown to render incorrectly / be invisible
+- Location field now shows ALL locations on focus (not just first 10)
+- Location pre-fills correctly when editing an existing appointment
+- Audit Logs button: closes appointment dialog first, reopens centered
+  (same fix pattern as Visit Notes — was rendering at page bottom)
+
+Booking conflict warnings (all overridable via 'Book Anyway'):
+- DOUBLE_BOOK: resource or staff already booked in this slot
+- OUTSIDE_HOURS: appointment time is outside resource working hours
+- SAME_PATIENT_SAME_DAY: patient already has an active appointment that day
+- Backend AppointmentRequest: allowDoubleBook / allowOutsideHours flags
+- Backend now SKIPS the corresponding check when the flag is true,
+  so 'Book Anyway' actually succeeds on save (previously it always
+  re-threw BusinessException regardless of the flag)
+- Frontend: errors from checkAvailability are now surfaced in the
+  dialog instead of leaving it silently open with no feedback
+- AvailabilityConflict: added conflictType + overridable fields
+
+Location color bands on schedule grid:
+- Now computed for BOTH resources AND staff (previously resources only)
+- Z-index fixed: bands(0) < hour-row grid-lines(2) < appointments(5)
+  bands render behind appointments, hour-rows are transparent so
+  bands show through
+- Border uses solid location color, fill uses ~16% opacity overlay
+- Tooltip shows location name + time range
+
+Backend logging (logback-spring.xml):
+- Rolling file appender: logs/yourowncrm.log (10MB/daily rotation,
+  30-day retention) — auto-recreates file if deleted while running
+- Separate AUDIT logger -> logs/audit.log (90-day retention)
+- SERVER_STARTED / SERVER_SHUTDOWN events
+- LOGIN_SUCCESS / LOGIN_FAILED (with reason: bad_password, locked,
+  deactivated, tenant_not_found, user_not_found) / ACCOUNT_LOCKED
+- LOGOUT endpoint (POST /api/auth/logout) + frontend call on logout
+- BUSINESS_RULE_REJECTED for caught BusinessExceptions (e.g. blocked
+  double-bookings before this fix)
+- UNHANDLED_EXCEPTION with full stack trace for uncaught errors
+- Fixed Logger import collisions (java.util.logging vs slf4j)
+  in UserServiceImpl and GlobalExceptionHandler
+---
+ .gitignore                                    |   4 +-
+ backend/logs/.gitkeep                         |   0
+ .../com/yourowncrm/YourOwnCrmApplication.java |  28 ++++-
+ .../yourowncrm/controller/AuthController.java |  31 +++++-
+ .../dto/request/AppointmentRequest.java       |   8 ++
+ .../dto/response/AvailabilityConflict.java    |   8 ++
+ .../exception/GlobalExceptionHandler.java     |   5 +
+ .../repository/AppointmentRepository.java     |  11 ++
+ .../yourowncrm/security/JwtTokenProvider.java |   1 +
+ .../service/impl/AppointmentServiceImpl.java  | 100 ++++++++++++------
+ .../service/impl/UserServiceImpl.java         |  36 ++++++-
+ backend/src/main/resources/logback-spring.xml |  61 +++++++++++
+ .../src/app/core/services/auth.service.ts     |   9 ++
+ .../schedule/appointment-dialog.component.ts  |  84 +++++++++------
+ .../features/schedule/schedule.component.ts   |  70 +++++++-----
+ .../app/shared/models/appointment.model.ts    |   4 +
+ 16 files changed, 364 insertions(+), 96 deletions(-)
+ create mode 100644 backend/logs/.gitkeep
+ create mode 100644 backend/src/main/resources/logback-spring.xml
+
+diff --git a/.gitignore b/.gitignore
+index a49294f..5cc7436 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,6 +1,8 @@
+ # ── Backend ────────────────────────────────────────
+ backend/target/
+-backend/logs/
++backend/logs/*.log
++backend/logs/*.log.*
++!backend/logs/.gitkeep
+ *.class
+ *.jar
+ *.war
+diff --git a/backend/logs/.gitkeep b/backend/logs/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/backend/src/main/java/com/yourowncrm/YourOwnCrmApplication.java b/backend/src/main/java/com/yourowncrm/YourOwnCrmApplication.java
+index 919b1a8..0fe451f 100644
+--- a/backend/src/main/java/com/yourowncrm/YourOwnCrmApplication.java
++++ b/backend/src/main/java/com/yourowncrm/YourOwnCrmApplication.java
+@@ -1,11 +1,37 @@
+ package com.yourowncrm;
+ 
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import org.springframework.boot.SpringApplication;
+ import org.springframework.boot.autoconfigure.SpringBootApplication;
++import org.springframework.boot.context.event.ApplicationReadyEvent;
++import org.springframework.context.ConfigurableApplicationContext;
++import org.springframework.context.event.ContextClosedEvent;
++import org.springframework.context.event.EventListener;
+ 
+ @SpringBootApplication
+ public class YourOwnCrmApplication {
++
++    private static final Logger AUDIT = LoggerFactory.getLogger("AUDIT");
++    private static final Logger log   = LoggerFactory.getLogger(YourOwnCrmApplication.class);
++
+     public static void main(String[] args) {
+-        SpringApplication.run(YourOwnCrmApplication.class, args);
++        ConfigurableApplicationContext ctx = SpringApplication.run(YourOwnCrmApplication.class, args);
++
++        // Ensure clean shutdown logging even on Ctrl+C / kill
++        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
++            AUDIT.info("SERVER_SHUTDOWN reason=shutdown_hook");
++        }));
++    }
++
++    @EventListener(ApplicationReadyEvent.class)
++    public void onReady() {
++        AUDIT.info("SERVER_STARTED port={}", System.getProperty("server.port", "8085"));
++        log.info("YourOwnCrm backend is ready to accept requests.");
++    }
++
++    @EventListener(ContextClosedEvent.class)
++    public void onShutdown() {
++        AUDIT.info("SERVER_SHUTDOWN reason=context_closed");
+     }
+ }
+diff --git a/backend/src/main/java/com/yourowncrm/controller/AuthController.java b/backend/src/main/java/com/yourowncrm/controller/AuthController.java
+index bfbf1f0..502fea3 100644
+--- a/backend/src/main/java/com/yourowncrm/controller/AuthController.java
++++ b/backend/src/main/java/com/yourowncrm/controller/AuthController.java
+@@ -1,20 +1,47 @@
+ package com.yourowncrm.controller;
+ import com.yourowncrm.dto.request.LoginRequest;
+ import com.yourowncrm.dto.response.AuthResponse;
++import com.yourowncrm.security.JwtTokenProvider;
+ import com.yourowncrm.service.UserService;
+ import jakarta.validation.Valid;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import org.springframework.web.bind.annotation.*;
+ 
+ @RestController @RequestMapping("/api/auth") public class AuthController {
++    private static final Logger AUDIT = LoggerFactory.getLogger("AUDIT");
++
+     private final UserService userService;
++    private final JwtTokenProvider jwtProvider;
++
+     @org.springframework.beans.factory.annotation.Autowired
+-    public AuthController(UserService userService) {
++    public AuthController(UserService userService, JwtTokenProvider jwtProvider) {
+         this.userService = userService;
++        this.jwtProvider = jwtProvider;
+     }
+ 
+-
+     @PostMapping("/login")
+     public AuthResponse login(@Valid @RequestBody LoginRequest req) {
+         return userService.login(req);
+     }
++
++    /**
++     * Logout is stateless (JWT) — there's no server-side session to invalidate.
++     * This endpoint exists purely to record a LOGOUT audit entry.
++     * The frontend should call this before discarding its token.
++     */
++    @PostMapping("/logout")
++    public void logout(@RequestHeader(value = "Authorization", required = false) String token) {
++        if (token != null && token.startsWith("Bearer ")) {
++            try {
++                Long userId   = jwtProvider.getUserId(token.substring(7));
++                String username = jwtProvider.getUsername(token.substring(7));
++                AUDIT.info("LOGOUT user={} userId={}", username, userId);
++            } catch (Exception e) {
++                AUDIT.info("LOGOUT (invalid/expired token)");
++            }
++        } else {
++            AUDIT.info("LOGOUT (no token)");
++        }
++    }
+ }
+diff --git a/backend/src/main/java/com/yourowncrm/dto/request/AppointmentRequest.java b/backend/src/main/java/com/yourowncrm/dto/request/AppointmentRequest.java
+index 1d6ad85..060657b 100644
+--- a/backend/src/main/java/com/yourowncrm/dto/request/AppointmentRequest.java
++++ b/backend/src/main/java/com/yourowncrm/dto/request/AppointmentRequest.java
+@@ -16,6 +16,8 @@ public class AppointmentRequest {
+     @NotNull private LocalTime startTime;
+     @NotNull private LocalTime endTime;
+     private Long excludeAppointmentId;
++    private Boolean allowDoubleBook;
++    private Boolean allowOutsideHours;
+     private BigDecimal chargeAmount = BigDecimal.ZERO;
+     private String notes;
+ 
+@@ -42,6 +44,12 @@ public class AppointmentRequest {
+     public void setEndTime(LocalTime v) { this.endTime=v; }
+     public Long getExcludeAppointmentId() { return excludeAppointmentId; }
+     public void setExcludeAppointmentId(Long v) { this.excludeAppointmentId=v; }
++    public Boolean getAllowDoubleBook() { return allowDoubleBook; }
++    public void setAllowDoubleBook(Boolean v) { this.allowDoubleBook=v; }
++    public Boolean getAllowOutsideHours() { return allowOutsideHours; }
++    public void setAllowOutsideHours(Boolean v) { this.allowOutsideHours=v; }
++    public boolean isAllowDoubleBook()    { return Boolean.TRUE.equals(allowDoubleBook); }
++    public boolean isAllowOutsideHours()  { return Boolean.TRUE.equals(allowOutsideHours); }
+     public BigDecimal getChargeAmount() { return chargeAmount; }
+     public void setChargeAmount(BigDecimal v) { this.chargeAmount=v; }
+     public String getNotes() { return notes; }
+diff --git a/backend/src/main/java/com/yourowncrm/dto/response/AvailabilityConflict.java b/backend/src/main/java/com/yourowncrm/dto/response/AvailabilityConflict.java
+index 2f02f00..789f317 100644
+--- a/backend/src/main/java/com/yourowncrm/dto/response/AvailabilityConflict.java
++++ b/backend/src/main/java/com/yourowncrm/dto/response/AvailabilityConflict.java
+@@ -5,6 +5,8 @@ import java.time.LocalTime;
+ public class AvailabilityConflict {
+     private boolean available;
+     private String reason;
++    private String conflictType; // DOUBLE_BOOK | OUTSIDE_HOURS | SAME_PATIENT_SAME_DAY
++    private boolean overridable;  // true if user can click "Book Anyway"
+     private Long conflictingAppointmentId;
+     private String conflictingCustomerName;
+     private LocalDate date;
+@@ -16,6 +18,10 @@ public class AvailabilityConflict {
+     public void setAvailable(boolean v) { this.available=v; }
+     public String getReason() { return reason; }
+     public void setReason(String v) { this.reason=v; }
++    public String getConflictType() { return conflictType; }
++    public void setConflictType(String v) { this.conflictType=v; }
++    public boolean isOverridable() { return overridable; }
++    public void setOverridable(boolean v) { this.overridable=v; }
+     public Long getConflictingAppointmentId() { return conflictingAppointmentId; }
+     public void setConflictingAppointmentId(Long v) { this.conflictingAppointmentId=v; }
+     public String getConflictingCustomerName() { return conflictingCustomerName; }
+@@ -32,6 +38,8 @@ public class AvailabilityConflict {
+         private final AvailabilityConflict a = new AvailabilityConflict();
+         public Builder available(boolean v)                    { a.available=v; return this; }
+         public Builder reason(String v)                        { a.reason=v; return this; }
++        public Builder conflictType(String v)                  { a.conflictType=v; return this; }
++        public Builder overridable(boolean v)                  { a.overridable=v; return this; }
+         public Builder conflictingAppointmentId(Long v)        { a.conflictingAppointmentId=v; return this; }
+         public Builder conflictingCustomerName(String v)       { a.conflictingCustomerName=v; return this; }
+         public Builder date(LocalDate v)                       { a.date=v; return this; }
+diff --git a/backend/src/main/java/com/yourowncrm/exception/GlobalExceptionHandler.java b/backend/src/main/java/com/yourowncrm/exception/GlobalExceptionHandler.java
+index 7cf4d4f..aa092da 100644
+--- a/backend/src/main/java/com/yourowncrm/exception/GlobalExceptionHandler.java
++++ b/backend/src/main/java/com/yourowncrm/exception/GlobalExceptionHandler.java
+@@ -1,6 +1,7 @@
+ package com.yourowncrm.exception;
+ 
+ import java.util.logging.Logger;
++import org.slf4j.LoggerFactory;
+ import org.springframework.http.*;
+ import org.springframework.validation.FieldError;
+ import org.springframework.web.bind.MethodArgumentNotValidException;
+@@ -12,9 +13,11 @@ import java.util.*;
+ @RestControllerAdvice
+ public class GlobalExceptionHandler {
+     private static final Logger log = Logger.getLogger(GlobalExceptionHandler.class.getName());
++    private static final org.slf4j.Logger AUDIT = LoggerFactory.getLogger("AUDIT");
+ 
+     @ExceptionHandler(BusinessException.class)
+     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException ex) {
++        AUDIT.info("BUSINESS_RULE_REJECTED reason=\"{}\"", ex.getMessage());
+         return ResponseEntity.unprocessableEntity()
+                 .body(new ErrorResponse(422, ex.getMessage()));
+     }
+@@ -39,6 +42,8 @@ public class GlobalExceptionHandler {
+     @ExceptionHandler(Exception.class)
+     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
+         log.severe("Unhandled exception: " + ex.getMessage());
++        AUDIT.error("UNHANDLED_EXCEPTION type={} message=\"{}\"",
++                ex.getClass().getSimpleName(), ex.getMessage(), ex);
+         return ResponseEntity.internalServerError()
+                 .body(new ErrorResponse(500, "An internal error occurred"));
+     }
+diff --git a/backend/src/main/java/com/yourowncrm/repository/AppointmentRepository.java b/backend/src/main/java/com/yourowncrm/repository/AppointmentRepository.java
+index fb06841..f59083f 100644
+--- a/backend/src/main/java/com/yourowncrm/repository/AppointmentRepository.java
++++ b/backend/src/main/java/com/yourowncrm/repository/AppointmentRepository.java
+@@ -83,5 +83,16 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long>
+             @Param("to")       LocalDate to);
+     // All visits for a customer
+     List<Appointment> findByTenantIdAndCustomerIdOrderByApptDateDescStartTimeDesc(UUID tenantId, Long customerId);
++
++    @org.springframework.data.jpa.repository.Query(
++        "SELECT a FROM Appointment a WHERE a.tenantId = :tenantId " +
++        "AND a.customer.id = :customerId AND a.apptDate = :apptDate " +
++        "AND a.id <> :excludeId AND a.visitStatus.terminal = false"
++    )
++    List<Appointment> findActiveByCustomerAndDate(
++        @org.springframework.data.repository.query.Param("tenantId") UUID tenantId,
++        @org.springframework.data.repository.query.Param("customerId") Long customerId,
++        @org.springframework.data.repository.query.Param("apptDate") java.time.LocalDate apptDate,
++        @org.springframework.data.repository.query.Param("excludeId") Long excludeId);
+     java.util.List<Appointment> findByTenantIdAndApptDateBetweenOrderByApptDateAscStartTimeAsc(java.util.UUID tenantId, java.time.LocalDate from, java.time.LocalDate to);
+ }
+diff --git a/backend/src/main/java/com/yourowncrm/security/JwtTokenProvider.java b/backend/src/main/java/com/yourowncrm/security/JwtTokenProvider.java
+index 93da372..45e58dd 100644
+--- a/backend/src/main/java/com/yourowncrm/security/JwtTokenProvider.java
++++ b/backend/src/main/java/com/yourowncrm/security/JwtTokenProvider.java
+@@ -46,5 +46,6 @@ public class JwtTokenProvider {
+     }
+ 
+     public Long getUserId(String token) { return Long.valueOf(parseToken(token).getSubject()); }
++    public String getUsername(String token) { return parseToken(token).get("username", String.class); }
+     public UUID getTenantId(String token) { return UUID.fromString(parseToken(token).get("tenantId", String.class)); }
+ }
+diff --git a/backend/src/main/java/com/yourowncrm/service/impl/AppointmentServiceImpl.java b/backend/src/main/java/com/yourowncrm/service/impl/AppointmentServiceImpl.java
+index b335948..c50601d 100644
+--- a/backend/src/main/java/com/yourowncrm/service/impl/AppointmentServiceImpl.java
++++ b/backend/src/main/java/com/yourowncrm/service/impl/AppointmentServiceImpl.java
+@@ -118,39 +118,72 @@ public class AppointmentServiceImpl implements AppointmentService {
+     @Override
+     @Transactional(readOnly = true)
+     public AvailabilityConflict checkAvailability(UUID tenantId, AppointmentRequest req) {
+-        AvailabilityConflict scheduleConflict = validateResourceSchedule(tenantId, req);
+-        if (scheduleConflict != null) return scheduleConflict;
+-
+         Long excludeId = req.getExcludeAppointmentId() != null ? req.getExcludeAppointmentId() : -1L;
+ 
+-        if (req.getResourceId() != null) {
+-            List<Appointment> conflicts = appointmentRepo.findConflictingByResource(
+-                    req.getResourceId(), req.getApptDate(),
+-                    req.getStartTime(), req.getEndTime(), excludeId);
+-            if (!conflicts.isEmpty()) {
+-                Appointment c = conflicts.get(0);
+-                return AvailabilityConflict.builder()
+-                        .available(false)
+-                        .reason("Double-booking conflict with existing appointment")
+-                        .conflictingAppointmentId(c.getId())
+-                        .conflictingCustomerName(
+-                            c.getCustomer().getFirstName() + " " + c.getCustomer().getLastName())
+-                        .date(c.getApptDate())
+-                        .startTime(c.getStartTime())
+-                        .endTime(c.getEndTime())
+-                        .build();
++        // ── 1. Outside working hours — overridable warning ──────────────────
++        if (!req.isAllowOutsideHours()) {
++            AvailabilityConflict scheduleConflict = validateResourceSchedule(tenantId, req);
++            if (scheduleConflict != null) return scheduleConflict;
++        }
++
++        // ── 2. Double-booking on resource — overridable warning ─────────────
++        if (!req.isAllowDoubleBook()) {
++            if (req.getResourceId() != null) {
++                List<Appointment> conflicts = appointmentRepo.findConflictingByResource(
++                        req.getResourceId(), req.getApptDate(),
++                        req.getStartTime(), req.getEndTime(), excludeId);
++                if (!conflicts.isEmpty()) {
++                    Appointment c = conflicts.get(0);
++                    return AvailabilityConflict.builder()
++                            .available(false)
++                            .conflictType("DOUBLE_BOOK")
++                            .overridable(true)
++                            .reason("Double-booking: this resource is already booked")
++                            .conflictingAppointmentId(c.getId())
++                            .conflictingCustomerName(
++                                c.getCustomer().getFirstName() + " " + c.getCustomer().getLastName())
++                            .date(c.getApptDate())
++                            .startTime(c.getStartTime())
++                            .endTime(c.getEndTime())
++                            .build();
++                }
++            }
++
++            if (req.getStaffResourceId() != null) {
++                List<Appointment> conflicts = appointmentRepo.findConflictingByStaffResource(
++                        req.getStaffResourceId(), req.getApptDate(),
++                        req.getStartTime(), req.getEndTime(), excludeId);
++                if (!conflicts.isEmpty()) {
++                    Appointment c = conflicts.get(0);
++                    return AvailabilityConflict.builder()
++                            .available(false)
++                            .conflictType("DOUBLE_BOOK")
++                            .overridable(true)
++                            .reason("Double-booking: this staff member is already booked")
++                            .conflictingAppointmentId(c.getId())
++                            .conflictingCustomerName(
++                                c.getCustomer().getFirstName() + " " + c.getCustomer().getLastName())
++                            .date(c.getApptDate())
++                            .startTime(c.getStartTime())
++                            .endTime(c.getEndTime())
++                            .build();
++                }
+             }
+         }
+ 
+-        if (req.getStaffResourceId() != null) {
+-            List<Appointment> conflicts = appointmentRepo.findConflictingByStaffResource(
+-                    req.getStaffResourceId(), req.getApptDate(),
+-                    req.getStartTime(), req.getEndTime(), excludeId);
+-            if (!conflicts.isEmpty()) {
+-                Appointment c = conflicts.get(0);
++        // ── 3. Same patient, same day — overridable warning ──────────────────
++        // This check ALWAYS runs (not gated by allow flags) but is always overridable.
++        if (req.getCustomerId() != null && req.getApptDate() != null) {
++            List<Appointment> existing = appointmentRepo.findActiveByCustomerAndDate(
++                    tenantId, req.getCustomerId(), req.getApptDate(), excludeId);
++            if (!existing.isEmpty() && !req.isAllowDoubleBook()) {
++                Appointment c = existing.get(0);
+                 return AvailabilityConflict.builder()
+                         .available(false)
+-                        .reason("Staff member already booked during this time")
++                        .conflictType("SAME_PATIENT_SAME_DAY")
++                        .overridable(true)
++                        .reason("This patient already has an appointment on "
++                                + req.getApptDate())
+                         .conflictingAppointmentId(c.getId())
+                         .conflictingCustomerName(
+                             c.getCustomer().getFirstName() + " " + c.getCustomer().getLastName())
+@@ -171,13 +204,18 @@ public class AppointmentServiceImpl implements AppointmentService {
+                 req.getEndTime().equals(req.getStartTime())) {
+             throw new BusinessException("End time must be after start time");
+         }
++        // checkAvailability already respects allowDoubleBook / allowOutsideHours —
++        // if those flags are true, the corresponding checks are skipped entirely
++        // and checkAvailability returns available=true, so this will not throw.
+         AvailabilityConflict conflict = checkAvailability(tenantId, req);
+         if (!conflict.isAvailable()) {
+-            throw new BusinessException(conflict.getReason()
+-                    + " — conflicts with appointment #"
+-                    + conflict.getConflictingAppointmentId()
+-                    + " (" + conflict.getConflictingCustomerName()
+-                    + " at " + conflict.getStartTime() + ")");
++            String msg = conflict.getReason();
++            if (conflict.getConflictingAppointmentId() != null) {
++                msg += " — conflicts with appointment #" + conflict.getConflictingAppointmentId()
++                     + " (" + conflict.getConflictingCustomerName()
++                     + " at " + conflict.getStartTime() + ")";
++            }
++            throw new BusinessException(msg);
+         }
+     }
+ 
+diff --git a/backend/src/main/java/com/yourowncrm/service/impl/UserServiceImpl.java b/backend/src/main/java/com/yourowncrm/service/impl/UserServiceImpl.java
+index 6e56cbd..e140783 100644
+--- a/backend/src/main/java/com/yourowncrm/service/impl/UserServiceImpl.java
++++ b/backend/src/main/java/com/yourowncrm/service/impl/UserServiceImpl.java
+@@ -13,6 +13,7 @@ import com.yourowncrm.service.UserService;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.security.crypto.password.PasswordEncoder;
+ import org.springframework.stereotype.Service;
++import org.slf4j.LoggerFactory;
+ import org.springframework.transaction.annotation.Transactional;
+ import java.time.Instant;
+ import java.util.List;
+@@ -23,6 +24,8 @@ import java.util.logging.Logger;
+ @Service
+ public class UserServiceImpl implements UserService {
+ 
++    private static final org.slf4j.Logger AUDIT = LoggerFactory.getLogger("AUDIT");
++
+     private static final Logger log = Logger.getLogger(UserServiceImpl.class.getName());
+     private static final int MAX_FAIL = 5;
+ 
+@@ -44,12 +47,28 @@ public class UserServiceImpl implements UserService {
+     @Transactional
+     public AuthResponse login(LoginRequest req) {
+         var tenant = tenantRepo.findBySlug(req.getTenantSlug())
+-            .orElseThrow(() -> new BusinessException("Organisation not found: " + req.getTenantSlug()));
++            .orElseThrow(() -> {
++                AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=tenant_not_found",
++                        req.getUsername(), req.getTenantSlug());
++                return new BusinessException("Organisation not found: " + req.getTenantSlug());
++            });
+         var user = userRepo.findByTenantIdAndUsername(tenant.getId(), req.getUsername())
+-            .orElseThrow(() -> new BusinessException("Invalid credentials"));
+-
+-        if (!user.isActive())  throw new BusinessException("Account is deactivated");
+-        if (user.isLocked())   throw new BusinessException("Account locked — contact your administrator");
++            .orElseThrow(() -> {
++                AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=user_not_found",
++                        req.getUsername(), req.getTenantSlug());
++                return new BusinessException("Invalid credentials");
++            });
++
++        if (!user.isActive()) {
++            AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=account_deactivated",
++                    req.getUsername(), req.getTenantSlug());
++            throw new BusinessException("Account is deactivated");
++        }
++        if (user.isLocked()) {
++            AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=account_locked",
++                    req.getUsername(), req.getTenantSlug());
++            throw new BusinessException("Account locked — contact your administrator");
++        }
+ 
+         if (!encoder.matches(req.getPassword(), user.getPasswordHash())) {
+             short fails = (short)(user.getFailCount() + 1);
+@@ -57,8 +76,12 @@ public class UserServiceImpl implements UserService {
+             if (fails >= MAX_FAIL) {
+                 user.setLocked(true);
+                 log.warning("User " + user.getUsername() + " locked after " + fails + " failures");
++                AUDIT.warn("ACCOUNT_LOCKED user={} tenant={} failures={}",
++                        user.getUsername(), req.getTenantSlug(), fails);
+             }
+             userRepo.save(user);
++            AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=bad_password attempt={}",
++                    req.getUsername(), req.getTenantSlug(), fails);
+             throw new BusinessException("Invalid credentials");
+         }
+ 
+@@ -66,6 +89,9 @@ public class UserServiceImpl implements UserService {
+         user.setLastLoginAt(Instant.now());
+         userRepo.save(user);
+ 
++        AUDIT.info("LOGIN_SUCCESS user={} userId={} tenant={} role={}",
++                user.getUsername(), user.getId(), req.getTenantSlug(), user.getRole());
++
+         String token = jwtProvider.generateToken(
+             user.getId(), user.getUsername(), user.getRole().name(), tenant.getId());
+ 
+diff --git a/backend/src/main/resources/logback-spring.xml b/backend/src/main/resources/logback-spring.xml
+new file mode 100644
+index 0000000..f534820
+--- /dev/null
++++ b/backend/src/main/resources/logback-spring.xml
+@@ -0,0 +1,61 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<configuration>
++
++    <!-- Console output -->
++    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
++        <encoder>
++            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
++        </encoder>
++    </appender>
++
++    <!--
++      Rolling file appender.
++      - File path: logs/yourowncrm.log (relative to where the JAR runs, i.e. backend/)
++      - If the file is deleted while the app is running, Logback's
++        RollingFileAppender automatically recreates it on the next write
++        (this is default behavior — no extra config needed).
++      - Rolls daily and when the file exceeds 10MB, keeps 30 days of history.
++    -->
++    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
++        <file>logs/yourowncrm.log</file>
++        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
++            <fileNamePattern>logs/yourowncrm.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
++            <maxFileSize>10MB</maxFileSize>
++            <maxHistory>30</maxHistory>
++            <totalSizeCap>500MB</totalSizeCap>
++        </rollingPolicy>
++        <encoder>
++            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{40} - %msg%n</pattern>
++        </encoder>
++    </appender>
++
++    <!-- Separate appender for audit events (login/logout/startup/shutdown) -->
++    <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
++        <file>logs/audit.log</file>
++        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
++            <fileNamePattern>logs/audit.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
++            <maxFileSize>10MB</maxFileSize>
++            <maxHistory>90</maxHistory>
++            <totalSizeCap>500MB</totalSizeCap>
++        </rollingPolicy>
++        <encoder>
++            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%-5level] %msg%n</pattern>
++        </encoder>
++    </appender>
++
++    <!-- Audit logger — used explicitly via LoggerFactory.getLogger("AUDIT") -->
++    <logger name="AUDIT" level="INFO" additivity="false">
++        <appender-ref ref="AUDIT_FILE"/>
++        <appender-ref ref="CONSOLE"/>
++    </logger>
++
++    <root level="INFO">
++        <appender-ref ref="CONSOLE"/>
++        <appender-ref ref="FILE"/>
++    </root>
++
++    <logger name="com.yourowncrm" level="DEBUG"/>
++    <logger name="org.springframework.security" level="INFO"/>
++    <logger name="org.hibernate.SQL" level="WARN"/>
++
++</configuration>
+diff --git a/frontend/src/app/core/services/auth.service.ts b/frontend/src/app/core/services/auth.service.ts
+index 4cf662f..c8ed481 100644
+--- a/frontend/src/app/core/services/auth.service.ts
++++ b/frontend/src/app/core/services/auth.service.ts
+@@ -27,6 +27,15 @@ export class AuthService {
+   }
+ 
+   logout() {
++    // Fire-and-forget audit log entry on the server before clearing the token.
++    // Don't block navigation on this — use the token that's about to be removed.
++    const token = this.getToken();
++    if (token) {
++      this.http.post(`${environment.apiUrl}/auth/logout`, {}).subscribe({
++        next: () => {},
++        error: () => {} // logout proceeds regardless of audit call outcome
++      });
++    }
+     localStorage.removeItem(this.TOKEN_KEY);
+     this.currentUser.set(null);
+     this.router.navigate(["/login"]);
+diff --git a/frontend/src/app/features/schedule/appointment-dialog.component.ts b/frontend/src/app/features/schedule/appointment-dialog.component.ts
+index 59c1cdc..6bd4e15 100644
+--- a/frontend/src/app/features/schedule/appointment-dialog.component.ts
++++ b/frontend/src/app/features/schedule/appointment-dialog.component.ts
+@@ -53,17 +53,19 @@ import { environment } from "../../../environments/environment";
+             <!-- Location — search box -->
+             <div class="form-group">
+               <label class="form-label">Location</label>
+-              <input class="form-control" [formControl]="locationSearch"
+-                     placeholder="Search location…" autocomplete="off"
+-                     (focus)="showLocDrop.set(true)"
+-                     (blur)="onLocBlur()"/>
+-              @if (showLocDrop() && locationResults().length) {
+-                <div class="ac-dropdown">
+-                  @for (loc of locationResults(); track loc.id) {
+-                    <div class="ac-item" (mousedown)="selectLocation(loc)">{{ loc.name }}</div>
+-                  }
+-                </div>
+-              }
++              <div style="position:relative;">
++                <input class="form-control" [formControl]="locationSearch"
++                       placeholder="Search location…" autocomplete="off"
++                       (focus)="onLocFocus()"
++                       (blur)="onLocBlur()"/>
++                @if (showLocDrop() && locationResults().length) {
++                  <div class="ac-dropdown">
++                    @for (loc of locationResults(); track loc.id) {
++                      <div class="ac-item" (mousedown)="selectLocation(loc)">{{ loc.name }}</div>
++                    }
++                  </div>
++                }
++              </div>
+               @if (selectedLocationName()) {
+                 <div style="font-size:11px;color:var(--jade);margin-top:3px;">
+                   📍 {{ selectedLocationName() }}
+@@ -343,7 +345,7 @@ export class AppointmentDialogComponent implements OnInit {
+       statuses: this.adminSvc.getVisitStatuses(),
+     }).subscribe(({ locations, visitTypes, statuses }) => {
+       this._allLocations = locations;
+-      this.locationResults.set(locations.slice(0, 10)); // show first 10 by default
++      this.locationResults.set(locations);
+       this.allVisitTypes   = visitTypes;
+       this.allVisitStatuses = statuses;
+       this.visitTypeResults.set(visitTypes);
+@@ -366,15 +368,15 @@ export class AppointmentDialogComponent implements OnInit {
+ 
+     // Location filter — instant from loaded list
+     this.locationSearch.valueChanges.subscribe(q => {
+-      // Use loaded locations from forkJoin result
+       const locs = this._allLocations;
+       if (!q) {
+-        this.locationResults.set(locs.slice(0, 10));
++        this.locationResults.set(locs);
+         return;
+       }
+       this.locationResults.set(
+         locs.filter((l: Location) => l.name.toLowerCase().includes((q||"").toLowerCase()))
+       );
++      this.showLocDrop.set(true);
+     });
+ 
+     // Visit type filter — instant from loaded list
+@@ -450,6 +452,7 @@ export class AppointmentDialogComponent implements OnInit {
+   }
+ 
+   // ── Location search ───────────────────────────────────────────
++  onLocFocus()  { this.locationResults.set(this._allLocations); this.showLocDrop.set(true); }
+   onLocBlur()   { setTimeout(() => this.showLocDrop.set(false), 200); }
+   selectLocation(loc: Location) {
+     this.selectedLocationId = loc.id;
+@@ -582,10 +585,18 @@ export class AppointmentDialogComponent implements OnInit {
+ 
+   openLogs() {
+     if (!this.data.appointment?.id) return;
+-    this.dialog.open(AuditLogsDialogComponent, {
+-      width: "620px", maxHeight: "80vh",
+-      data: { appointment: this.data.appointment }
+-    });
++    // Same pattern as Visit Notes — close this dialog first, then open
++    // Logs centered. Stacking on top was causing it to render at the
++    // bottom of the page due to inherited overlay position.
++    (document.activeElement as HTMLElement)?.blur();
++    this.dialogRef.close(false);
++    setTimeout(() => {
++      this.dialog.open(AuditLogsDialogComponent, {
++        width: "620px",
++        maxHeight: "80vh",
++        data: { appointment: this.data.appointment },
++      });
++    }, 200);
+   }
+ 
+   // ── Save with double-booking + outside-hours warnings ─────────
+@@ -623,29 +634,38 @@ export class AppointmentDialogComponent implements OnInit {
+       next: conflict => {
+         this.checking.set(false);
+         if (!conflict.available) {
+-          // Determine if it's a hard error or a warning the user can override
+-          const isDoubleBook   = conflict.reason?.toLowerCase().includes("conflict") ||
+-                                  conflict.reason?.toLowerCase().includes("booked");
+-          const isOutsideHours = conflict.reason?.toLowerCase().includes("hour") ||
+-                                  conflict.reason?.toLowerCase().includes("schedule");
+-
+-          if (isDoubleBook || isOutsideHours) {
+-            // Warning — allow user to proceed
++          const icons: Record<string,string> = {
++            DOUBLE_BOOK: "⚠ Double Booking",
++            OUTSIDE_HOURS: "⚠ Outside Working Hours",
++            SAME_PATIENT_SAME_DAY: "⚠ Existing Appointment Today",
++          };
++          const label = icons[conflict.conflictType ?? ""] ?? "⚠ Warning";
++
++          if (conflict.overridable) {
+             this.conflictIsWarning.set(true);
+             this.conflictMsg.set(
+-              (isDoubleBook ? "⚠ Double booking: " : "⚠ Outside working hours: ") +
+-              conflict.reason +
+-              (conflict.conflictingCustomerName ? ` (${conflict.conflictingCustomerName} at ${conflict.startTime})` : "") +
+-              ". Click 'Book Anyway' to proceed."
++              `${label}: ${conflict.reason}` +
++              (conflict.conflictingCustomerName
++                ? ` (${conflict.conflictingCustomerName} at ${conflict.startTime ?? ""})`
++                : "") +
++              `. Click "Book Anyway" to proceed.`
+             );
+           } else {
+-            this.conflictMsg.set(conflict.reason ?? "Conflict detected.");
++            this.conflictIsWarning.set(false);
++            this.conflictMsg.set(conflict.reason ?? "This slot is not available.");
+           }
+           return;
+         }
+         this.doSave(payload);
+       },
+-      error: () => { this.checking.set(false); this.doSave(payload); }
++      error: e => {
++        this.checking.set(false);
++        // Surface the error instead of leaving the dialog silently open
++        this.conflictIsWarning.set(false);
++        this.conflictMsg.set(
++          e.error?.message ?? "Could not check availability. Please try again."
++        );
++      }
+     });
+   }
+ 
+diff --git a/frontend/src/app/features/schedule/schedule.component.ts b/frontend/src/app/features/schedule/schedule.component.ts
+index cb6d87b..2a76abd 100644
+--- a/frontend/src/app/features/schedule/schedule.component.ts
++++ b/frontend/src/app/features/schedule/schedule.component.ts
+@@ -164,24 +164,27 @@ const PX_PER_MIN = PX_PER_HR / 60;
+                          style="height:36px;color:#fff;display:flex;align-items:center;justify-content:center;gap:6px;font-size:11px;font-weight:600;padding:0 8px;position:sticky;top:0;z-index:10;border-bottom:2px solid rgba(0,0,0,.15);">
+                       {{ r.name }}
+                     </div>
+-                    <div style="position:relative;">
++                    <div style="position:relative;background:#fff;">
++                      <!-- Location color bands — painted first, z-index:0 -->
++                      @for (band of getBands('RES_' + r.id); track band.start) {
++                        <div [style.top.px]="bandTop(band.start)"
++                             [style.height.px]="bandHeight(band.start, band.end)"
++                             [style.background]="band.color"
++                             [style.borderLeftColor]="band.solidColor"
++                             [title]="band.locationName + ' (' + formatHour(band.start) + ' - ' + formatHour(band.end) + ')'"
++                             style="position:absolute;left:0;right:0;pointer-events:none;z-index:0;border-left:4px solid;">
++                        </div>
++                      }
++                      <!-- Hour rows — transparent background so bands show through -->
+                       @for (h of visibleHours(); track h) {
+-                        <div style="height:80px;border-bottom:1px solid var(--stone-mid);position:relative;cursor:pointer;background:#fff;"
++                        <div style="height:80px;border-bottom:1px solid var(--stone-mid);position:relative;cursor:pointer;background:transparent;z-index:2;"
+                              (dblclick)="openApptModal(r.id, null, h)">
+                           <div style="position:absolute;left:0;right:0;top:20px;border-top:1px dashed rgba(0,0,0,.08);pointer-events:none;"></div>
+                           <div style="position:absolute;left:0;right:0;top:40px;border-top:1px dashed rgba(0,0,0,.15);pointer-events:none;"></div>
+                           <div style="position:absolute;left:0;right:0;top:60px;border-top:1px dashed rgba(0,0,0,.08);pointer-events:none;"></div>
+                         </div>
+                       }
+-                      <!-- Location color bands overlay -->
+-                      @for (band of getBands('RES_' + r.id); track band.start) {
+-                        <div [style.top.px]="bandTop(band.start)"
+-                             [style.height.px]="bandHeight(band.start, band.end)"
+-                             [style.background]="band.color"
+-                             [title]="band.locationName"
+-                             style="position:absolute;left:0;right:0;pointer-events:none;z-index:1;border-left:3px solid currentColor;">
+-                        </div>
+-                      }
++                      <!-- Appointments — always on top -->
+                       @for (a of apptsByResource(r.id); track a.id) {
+                         <div [style.background]="r.colorHex"
+                              [style.top.px]="apptTop(a)"
+@@ -204,9 +207,19 @@ const PX_PER_MIN = PX_PER_HR / 60;
+                       <div style="width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;">{{ initials(s) }}</div>
+                       <span style="font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.firstName }} {{ s.lastName }}</span>
+                     </div>
+-                    <div style="position:relative;">
++                    <div style="position:relative;background:#fff;">
++                      <!-- Location color bands — painted first, z-index:0 -->
++                      @for (band of getBands('STAFF_' + s.id); track band.start) {
++                        <div [style.top.px]="bandTop(band.start)"
++                             [style.height.px]="bandHeight(band.start, band.end)"
++                             [style.background]="band.color"
++                             [style.borderLeftColor]="band.solidColor"
++                             [title]="band.locationName + ' (' + formatHour(band.start) + ' - ' + formatHour(band.end) + ')'"
++                             style="position:absolute;left:0;right:0;pointer-events:none;z-index:0;border-left:4px solid;">
++                        </div>
++                      }
+                       @for (h of visibleHours(); track h) {
+-                        <div style="height:80px;border-bottom:1px solid var(--stone-mid);position:relative;cursor:pointer;background:#fff;"
++                        <div style="height:80px;border-bottom:1px solid var(--stone-mid);position:relative;cursor:pointer;background:transparent;z-index:2;"
+                              (dblclick)="openApptModal(null, s.id, h)">
+                           <div style="position:absolute;left:0;right:0;top:20px;border-top:1px dashed rgba(0,0,0,.08);pointer-events:none;"></div>
+                           <div style="position:absolute;left:0;right:0;top:40px;border-top:1px dashed rgba(0,0,0,.15);pointer-events:none;"></div>
+@@ -384,7 +397,7 @@ export class ScheduleComponent implements OnInit, OnDestroy {
+   workingHoursMap = signal<Map<string, { start: number; end: number }>>(new Map());
+ 
+   // Location color bands: key = 'RES_id' or 'STAFF_id', value = array of {start, end, color, locationName}
+-  locationBands = signal<Map<string, Array<{start:number;end:number;color:string;locationName:string}>>>(new Map());
++  locationBands = signal<Map<string, Array<{start:number;end:number;color:string;solidColor:string;locationName:string}>>>(new Map());
+ 
+   formattedDate = computed(() => {
+     const d = this.currentDateSig();
+@@ -495,34 +508,42 @@ export class ScheduleComponent implements OnInit, OnDestroy {
+         this.state.visibleStaff.set(sv);
+         this.state.initialized = true;
+       }
++      this.loadWorkingHours();
+       this.loadSchedule();
+     });
+   }
+ 
+   private loadWorkingHours() {
+     const resources = this.state.resources();
++    const staff     = this.activeStaff();
+     const locations = this.state.locations();
+-    if (!resources.length) return;
++    if (!resources.length && !staff.length) return;
+ 
+     // Build location color lookup
+     const locColor = new Map<number, { color: string; name: string }>();
+     locations.forEach(l => locColor.set(l.id, { color: l.colorHex || '#1a4a3a', name: l.name }));
+ 
+-    const calls = resources.slice(0, 20).map(r =>
+-      this.http.get<any[]>(`${environment.apiUrl}/resource-schedules?entityType=RESOURCE&entityId=${r.id}`)
++    type Entry = { key: string; entityType: string; entityId: number };
++    const entries: Entry[] = [
++      ...resources.slice(0, 20).map(r => ({ key: 'RES_'   + r.id, entityType: 'RESOURCE', entityId: r.id })),
++      ...staff.slice(0, 20).map(s     => ({ key: 'STAFF_' + s.id, entityType: 'STAFF',    entityId: s.id })),
++    ];
++
++    const calls = entries.map(e =>
++      this.http.get<any[]>(`${environment.apiUrl}/resource-schedules?entityType=${e.entityType}&entityId=${e.entityId}`)
+         .pipe(catchError(() => of([])))
+     );
+ 
+     forkJoin(calls).subscribe(results => {
+       const hoursMap = new Map<string, { start: number; end: number }>();
+-      const bandsMap = new Map<string, Array<{start:number;end:number;color:string;locationName:string}>>();
++      const bandsMap = new Map<string, Array<{start:number;end:number;color:string;solidColor:string;locationName:string}>>();
+ 
+       const today = new Date();
+       const dayName = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][today.getDay()];
+ 
+       results.forEach((schedules, i) => {
+         if (!schedules || !schedules.length) return;
+-        const key = 'RES_' + resources[i].id;
++        const key = entries[i].key;
+ 
+         // Filter to today's day
+         const todayScheds = schedules.filter((s: any) =>
+@@ -531,15 +552,15 @@ export class ScheduleComponent implements OnInit, OnDestroy {
+ 
+         const allOpen = schedules.filter((s: any) => s.open);
+ 
+-        // Working hours range across all days
++        // Working hours range across all days (for dynamic grid range)
+         if (allOpen.length) {
+           const starts = allOpen.map((s: any) => parseInt((s.openTime  ?? "07:00").split(":")[0]));
+           const ends   = allOpen.map((s: any) => parseInt((s.closeTime ?? "19:00").split(":")[0]));
+           hoursMap.set(key, { start: Math.min(...starts), end: Math.max(...ends) });
+         }
+ 
+-        // Location color bands for today
+-        const bands: Array<{start:number;end:number;color:string;locationName:string}> = [];
++        // Location color bands for TODAY only
++        const bands: Array<{start:number;end:number;color:string;solidColor:string;locationName:string}> = [];
+         todayScheds.forEach((s: any) => {
+           const locId = s.location?.id ?? s.locationId;
+           const locInfo = locId ? locColor.get(locId) : null;
+@@ -547,7 +568,8 @@ export class ScheduleComponent implements OnInit, OnDestroy {
+             bands.push({
+               start: parseInt((s.openTime  ?? "07:00").split(":")[0]),
+               end:   parseInt((s.closeTime ?? "19:00").split(":")[0]),
+-              color: locInfo.color + '33', // 20% opacity overlay
++              color: locInfo.color + '2a',  // ~16% opacity background fill
++              solidColor: locInfo.color,     // full color for left border
+               locationName: locInfo.name
+             });
+           }
+@@ -715,7 +737,7 @@ export class ScheduleComponent implements OnInit, OnDestroy {
+ 
+   // ── Context menu ──────────────────────────────────────────────
+   onCtxMenu(e: MouseEvent, a: Appointment) { e.preventDefault(); e.stopPropagation(); this.ctxApptId=a.id; this.ctxMenu.set({visible:true,x:e.clientX,y:e.clientY}); }
+-  getBands(key: string): Array<{start:number;end:number;color:string;locationName:string}> {
++  getBands(key: string): Array<{start:number;end:number;color:string;solidColor:string;locationName:string}> {
+     return this.locationBands().get(key) ?? [];
+   }
+ 
+diff --git a/frontend/src/app/shared/models/appointment.model.ts b/frontend/src/app/shared/models/appointment.model.ts
+index 5beb9e7..ff7348f 100644
+--- a/frontend/src/app/shared/models/appointment.model.ts
++++ b/frontend/src/app/shared/models/appointment.model.ts
+@@ -40,11 +40,15 @@ export interface AppointmentRequest {
+   chargeAmount?: number;
+   notes?: string;
+   excludeAppointmentId?: number;
++  allowDoubleBook?: boolean;
++  allowOutsideHours?: boolean;
+ }
+ 
+ export interface AvailabilityConflict {
+   available: boolean;
+   reason?: string;
++  conflictType?: "DOUBLE_BOOK" | "OUTSIDE_HOURS" | "SAME_PATIENT_SAME_DAY";
++  overridable?: boolean;
+   conflictingAppointmentId?: number;
+   conflictingCustomerName?: string;
+   date?: string;
+-- 
+2.43.0
+

@@ -118,39 +118,72 @@ public class AppointmentServiceImpl implements AppointmentService {
     @Override
     @Transactional(readOnly = true)
     public AvailabilityConflict checkAvailability(UUID tenantId, AppointmentRequest req) {
-        AvailabilityConflict scheduleConflict = validateResourceSchedule(tenantId, req);
-        if (scheduleConflict != null) return scheduleConflict;
-
         Long excludeId = req.getExcludeAppointmentId() != null ? req.getExcludeAppointmentId() : -1L;
 
-        if (req.getResourceId() != null) {
-            List<Appointment> conflicts = appointmentRepo.findConflictingByResource(
-                    req.getResourceId(), req.getApptDate(),
-                    req.getStartTime(), req.getEndTime(), excludeId);
-            if (!conflicts.isEmpty()) {
-                Appointment c = conflicts.get(0);
-                return AvailabilityConflict.builder()
-                        .available(false)
-                        .reason("Double-booking conflict with existing appointment")
-                        .conflictingAppointmentId(c.getId())
-                        .conflictingCustomerName(
-                            c.getCustomer().getFirstName() + " " + c.getCustomer().getLastName())
-                        .date(c.getApptDate())
-                        .startTime(c.getStartTime())
-                        .endTime(c.getEndTime())
-                        .build();
+        // ── 1. Outside working hours — overridable warning ──────────────────
+        if (!req.isAllowOutsideHours()) {
+            AvailabilityConflict scheduleConflict = validateResourceSchedule(tenantId, req);
+            if (scheduleConflict != null) return scheduleConflict;
+        }
+
+        // ── 2. Double-booking on resource — overridable warning ─────────────
+        if (!req.isAllowDoubleBook()) {
+            if (req.getResourceId() != null) {
+                List<Appointment> conflicts = appointmentRepo.findConflictingByResource(
+                        req.getResourceId(), req.getApptDate(),
+                        req.getStartTime(), req.getEndTime(), excludeId);
+                if (!conflicts.isEmpty()) {
+                    Appointment c = conflicts.get(0);
+                    return AvailabilityConflict.builder()
+                            .available(false)
+                            .conflictType("DOUBLE_BOOK")
+                            .overridable(true)
+                            .reason("Double-booking: this resource is already booked")
+                            .conflictingAppointmentId(c.getId())
+                            .conflictingCustomerName(
+                                c.getCustomer().getFirstName() + " " + c.getCustomer().getLastName())
+                            .date(c.getApptDate())
+                            .startTime(c.getStartTime())
+                            .endTime(c.getEndTime())
+                            .build();
+                }
+            }
+
+            if (req.getStaffResourceId() != null) {
+                List<Appointment> conflicts = appointmentRepo.findConflictingByStaffResource(
+                        req.getStaffResourceId(), req.getApptDate(),
+                        req.getStartTime(), req.getEndTime(), excludeId);
+                if (!conflicts.isEmpty()) {
+                    Appointment c = conflicts.get(0);
+                    return AvailabilityConflict.builder()
+                            .available(false)
+                            .conflictType("DOUBLE_BOOK")
+                            .overridable(true)
+                            .reason("Double-booking: this staff member is already booked")
+                            .conflictingAppointmentId(c.getId())
+                            .conflictingCustomerName(
+                                c.getCustomer().getFirstName() + " " + c.getCustomer().getLastName())
+                            .date(c.getApptDate())
+                            .startTime(c.getStartTime())
+                            .endTime(c.getEndTime())
+                            .build();
+                }
             }
         }
 
-        if (req.getStaffResourceId() != null) {
-            List<Appointment> conflicts = appointmentRepo.findConflictingByStaffResource(
-                    req.getStaffResourceId(), req.getApptDate(),
-                    req.getStartTime(), req.getEndTime(), excludeId);
-            if (!conflicts.isEmpty()) {
-                Appointment c = conflicts.get(0);
+        // ── 3. Same patient, same day — overridable warning ──────────────────
+        // This check ALWAYS runs (not gated by allow flags) but is always overridable.
+        if (req.getCustomerId() != null && req.getApptDate() != null) {
+            List<Appointment> existing = appointmentRepo.findActiveByCustomerAndDate(
+                    tenantId, req.getCustomerId(), req.getApptDate(), excludeId);
+            if (!existing.isEmpty() && !req.isAllowDoubleBook()) {
+                Appointment c = existing.get(0);
                 return AvailabilityConflict.builder()
                         .available(false)
-                        .reason("Staff member already booked during this time")
+                        .conflictType("SAME_PATIENT_SAME_DAY")
+                        .overridable(true)
+                        .reason("This patient already has an appointment on "
+                                + req.getApptDate())
                         .conflictingAppointmentId(c.getId())
                         .conflictingCustomerName(
                             c.getCustomer().getFirstName() + " " + c.getCustomer().getLastName())
@@ -171,13 +204,18 @@ public class AppointmentServiceImpl implements AppointmentService {
                 req.getEndTime().equals(req.getStartTime())) {
             throw new BusinessException("End time must be after start time");
         }
+        // checkAvailability already respects allowDoubleBook / allowOutsideHours —
+        // if those flags are true, the corresponding checks are skipped entirely
+        // and checkAvailability returns available=true, so this will not throw.
         AvailabilityConflict conflict = checkAvailability(tenantId, req);
         if (!conflict.isAvailable()) {
-            throw new BusinessException(conflict.getReason()
-                    + " — conflicts with appointment #"
-                    + conflict.getConflictingAppointmentId()
-                    + " (" + conflict.getConflictingCustomerName()
-                    + " at " + conflict.getStartTime() + ")");
+            String msg = conflict.getReason();
+            if (conflict.getConflictingAppointmentId() != null) {
+                msg += " — conflicts with appointment #" + conflict.getConflictingAppointmentId()
+                     + " (" + conflict.getConflictingCustomerName()
+                     + " at " + conflict.getStartTime() + ")";
+            }
+            throw new BusinessException(msg);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.yourowncrm.exception;
 
 import java.util.logging.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -12,9 +13,11 @@ import java.util.*;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     private static final Logger log = Logger.getLogger(GlobalExceptionHandler.class.getName());
+    private static final org.slf4j.Logger AUDIT = LoggerFactory.getLogger("AUDIT");
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException ex) {
+        AUDIT.info("BUSINESS_RULE_REJECTED reason=\"{}\"", ex.getMessage());
         return ResponseEntity.unprocessableEntity()
                 .body(new ErrorResponse(422, ex.getMessage()));
     }
@@ -39,6 +42,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
         log.severe("Unhandled exception: " + ex.getMessage());
+        AUDIT.error("UNHANDLED_EXCEPTION type={} message=\"{}\"",
+                ex.getClass().getSimpleName(), ex.getMessage(), ex);
         return ResponseEntity.internalServerError()
                 .body(new ErrorResponse(500, "An internal error occurred"));
     }

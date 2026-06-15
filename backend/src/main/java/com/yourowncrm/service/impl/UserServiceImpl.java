@@ -13,6 +13,7 @@ import com.yourowncrm.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
@@ -22,6 +23,8 @@ import java.util.logging.Logger;
 
 @Service
 public class UserServiceImpl implements UserService {
+
+    private static final org.slf4j.Logger AUDIT = LoggerFactory.getLogger("AUDIT");
 
     private static final Logger log = Logger.getLogger(UserServiceImpl.class.getName());
     private static final int MAX_FAIL = 5;
@@ -44,12 +47,28 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public AuthResponse login(LoginRequest req) {
         var tenant = tenantRepo.findBySlug(req.getTenantSlug())
-            .orElseThrow(() -> new BusinessException("Organisation not found: " + req.getTenantSlug()));
+            .orElseThrow(() -> {
+                AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=tenant_not_found",
+                        req.getUsername(), req.getTenantSlug());
+                return new BusinessException("Organisation not found: " + req.getTenantSlug());
+            });
         var user = userRepo.findByTenantIdAndUsername(tenant.getId(), req.getUsername())
-            .orElseThrow(() -> new BusinessException("Invalid credentials"));
+            .orElseThrow(() -> {
+                AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=user_not_found",
+                        req.getUsername(), req.getTenantSlug());
+                return new BusinessException("Invalid credentials");
+            });
 
-        if (!user.isActive())  throw new BusinessException("Account is deactivated");
-        if (user.isLocked())   throw new BusinessException("Account locked — contact your administrator");
+        if (!user.isActive()) {
+            AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=account_deactivated",
+                    req.getUsername(), req.getTenantSlug());
+            throw new BusinessException("Account is deactivated");
+        }
+        if (user.isLocked()) {
+            AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=account_locked",
+                    req.getUsername(), req.getTenantSlug());
+            throw new BusinessException("Account locked — contact your administrator");
+        }
 
         if (!encoder.matches(req.getPassword(), user.getPasswordHash())) {
             short fails = (short)(user.getFailCount() + 1);
@@ -57,14 +76,21 @@ public class UserServiceImpl implements UserService {
             if (fails >= MAX_FAIL) {
                 user.setLocked(true);
                 log.warning("User " + user.getUsername() + " locked after " + fails + " failures");
+                AUDIT.warn("ACCOUNT_LOCKED user={} tenant={} failures={}",
+                        user.getUsername(), req.getTenantSlug(), fails);
             }
             userRepo.save(user);
+            AUDIT.warn("LOGIN_FAILED user={} tenant={} reason=bad_password attempt={}",
+                    req.getUsername(), req.getTenantSlug(), fails);
             throw new BusinessException("Invalid credentials");
         }
 
         user.setFailCount((short) 0);
         user.setLastLoginAt(Instant.now());
         userRepo.save(user);
+
+        AUDIT.info("LOGIN_SUCCESS user={} userId={} tenant={} role={}",
+                user.getUsername(), user.getId(), req.getTenantSlug(), user.getRole());
 
         String token = jwtProvider.generateToken(
             user.getId(), user.getUsername(), user.getRole().name(), tenant.getId());
