@@ -5,6 +5,7 @@ import { MatDialogRef, MAT_DIALOG_DATA, MatDialogModule, MatDialog } from "@angu
 import { MatSnackBar, MatSnackBarModule } from "@angular/material/snack-bar";
 import { HttpClient } from "@angular/common/http";
 import { debounceTime, distinctUntilChanged, switchMap, of, forkJoin } from "rxjs";
+import { catchError } from "rxjs/operators";
 import { AppointmentService } from "../../core/services/appointment.service";
 import { AdminService } from "../../core/services/admin.service";
 import { Resource, User, VisitType, VisitStatus, Customer, Location } from "../../shared/models/admin.model";
@@ -531,7 +532,7 @@ export class AppointmentDialogComponent implements OnInit {
     const entityType = type === "STAFF" ? "STAFF" : "RESOURCE";
 
     this.http.get<any[]>(`${environment.apiUrl}/resource-schedules?entityType=${entityType}&entityId=${id}`)
-      .pipe(catchError(() => of([])))
+      .pipe(catchError(() => of([] as any[])))
       .subscribe(schedules => {
         const d = new Date(date + "T00:00:00");
         const dayName = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][d.getDay()];
