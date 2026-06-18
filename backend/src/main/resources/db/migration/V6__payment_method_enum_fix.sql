@@ -1,0 +1,31 @@
+-- ════════════════════════════════════════════════════════════════
+-- Payment method enum fix
+--
+-- Root cause of "payment posted is not saving... validation failed...
+-- 400... Invalid CORS request":
+--
+-- The frontend's payment dropdowns (Quick Pay popup AND the main
+-- Billing > Payments screen) have always offered 5 options:
+--   CARD, CASH, CHECK, TRANSFER, OTHER
+--
+-- But the database's payment_method ENUM type (and the matching Java
+-- PaymentMethod enum) only recognized 4 values:
+--   CASH, CARD, ONLINE, CHECK
+--
+-- Whenever a user selected "Online / ACH" (value="TRANSFER") or
+-- "Other" (value="OTHER"), Jackson failed to deserialize the request
+-- body into the Java enum before validation even ran. Spring surfaced
+-- this as a 400 Bad Request — which browsers sometimes display
+-- ambiguously as a CORS-looking failure when the response has no
+-- body/headers the browser expects, even though the real cause was
+-- payload deserialization, not CORS configuration.
+--
+-- This migration adds the two missing values to the Postgres enum.
+-- Postgres does not support removing enum values without recreating
+-- the type, so ONLINE is left in place for backward compatibality
+-- with any existing rows — the Java enum and frontend simply don't
+-- use it going forward.
+-- ════════════════════════════════════════════════════════════════
+
+ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'TRANSFER';
+ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'OTHER';

@@ -22,7 +22,17 @@ import { environment } from "../../../environments/environment";
   template: `
     <div class="appt-modal">
       <div class="modal-header">
-        <h3>{{ data.appointment ? "Edit Appointment" : "New Appointment" }}</h3>
+        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
+          <h3>{{ data.appointment ? "Edit Appointment" : "New Appointment" }}</h3>
+          @if (data.appointment && headerCustomer()) {
+            <span style="font-size:14px;color:var(--ink-mid);font-weight:500;">
+              {{ formatCustomerName(headerCustomer()) }}
+              @if (formatDob(headerCustomer())) {
+                <span style="color:var(--ink-light);">· DOB {{ formatDob(headerCustomer()) }}</span>
+              }
+            </span>
+          }
+        </div>
         <button class="close-btn" (click)="cancel()">✕</button>
       </div>
       <div class="modal-body">
@@ -51,13 +61,6 @@ import { environment } from "../../../environments/environment";
                   </div>
                 }
               </div>
-              @if (selectedLocationName()) {
-                <div style="font-size:11px;color:var(--jade);margin-top:3px;">
-                  📍 {{ selectedLocationName() }}
-                  <span style="cursor:pointer;margin-left:4px;color:var(--ink-light);"
-                        (click)="clearLocation()">✕</span>
-                </div>
-              }
             </div>
 
             <!-- Customer autocomplete -->
@@ -151,12 +154,6 @@ import { environment } from "../../../environments/environment";
                     }
                   </div>
                 }
-                @if (selectedVisitTypeName()) {
-                  <div style="font-size:11px;color:var(--jade);margin-top:3px;">
-                    ✓ {{ selectedVisitTypeName() }}
-                    <span style="cursor:pointer;margin-left:4px;color:var(--ink-light);" (click)="clearVisitType()">✕</span>
-                  </div>
-                }
               </div>
             </div>
 
@@ -175,12 +172,6 @@ import { environment } from "../../../environments/environment";
                         <span [style.color]="vs.colorHex">● </span>{{ vs.name }}
                       </div>
                     }
-                  </div>
-                }
-                @if (selectedStatusName()) {
-                  <div style="font-size:11px;color:var(--jade);margin-top:3px;">
-                    ✓ {{ selectedStatusName() }}
-                    <span style="cursor:pointer;margin-left:4px;color:var(--ink-light);" (click)="clearStatus()">✕</span>
                   </div>
                 }
               </div>
@@ -260,6 +251,13 @@ import { environment } from "../../../environments/environment";
     .ac-item:hover { background:var(--jade-mist); }
     .ac-item:last-child { border-bottom:none; }
     .ac-sub { font-size:11px;color:var(--ink-light);margin-left:8px; }
+
+    /* Tighter vertical rhythm inside this dialog only (scoped via Angular
+       component style encapsulation — does not affect .form-group/.g2
+       anywhere else in the app). Reduces row spacing by ~2px each. */
+    .appt-modal .form-group { gap: 3px; }
+    .appt-modal .g2 { row-gap: 12px; }
+    .appt-modal .g3 { row-gap: 12px; }
   `]
 })
 export class AppointmentDialogComponent implements OnInit {
@@ -281,6 +279,7 @@ export class AppointmentDialogComponent implements OnInit {
   customerSearch   = new FormControl("");
   customerResults  = signal<Customer[]>([]);
   selectedCustomer = signal<Customer | null>(null);
+  headerCustomer = signal<Customer | null>(null); // full record incl. DOB, for the header display only
   showCustomerDrop = signal(false);
 
   // Location search
@@ -414,6 +413,26 @@ export class AppointmentDialogComponent implements OnInit {
     }
   }
 
+  /**
+   * Formats a customer's name as "LastName, FirstName" for the modal
+   * header. NOTE: the requirement also asked for a middle initial
+   * ("LastName, First Name, Middle initial"), but no middle name/initial
+   * field exists anywhere in this system — not in the database schema,
+   * the backend Customer entity, or the frontend Customer model. There is
+   * no data to display. Once a middle name field is added to the
+   * customer record, extend this method to include it.
+   */
+  formatCustomerName(c: Customer | null): string {
+    if (!c) return "";
+    return `${c.lastName}, ${c.firstName}`;
+  }
+
+  formatDob(c: Customer | null): string {
+    if (!c?.dob) return "";
+    const d = new Date(c.dob + "T00:00:00");
+    return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  }
+
   private patchFromAppointment() {
     const a = this.data.appointment as Appointment;
     if (a.resourceId) { this.form.patchValue({ resourceKey: "RES_" + a.resourceId }); this.resourceTypeTag.set("Room"); }
@@ -435,6 +454,15 @@ export class AppointmentDialogComponent implements OnInit {
     if (a.customerFullName) {
       this.customerSearch.setValue(a.customerFullName, { emitEvent: false });
       this.selectedCustomer.set({ id: a.customerId } as any);
+      // Fetch the full customer record (name parts + DOB) for the header
+      // display next to "Edit Appointment" — the appointment payload only
+      // carries customerFullName as a single pre-joined string, not DOB.
+      if (a.customerId) {
+        this.adminSvc.getCustomer(a.customerId).subscribe({
+          next: c => this.headerCustomer.set(c),
+          error: () => this.headerCustomer.set(null),
+        });
+      }
     }
 
     // Set search display values
@@ -609,6 +637,19 @@ export class AppointmentDialogComponent implements OnInit {
    * Visit Notes/Logs — does NOT close this dialog, since Collect Payment is
    * a quick action the user expects to return from immediately.
    */
+  /**
+   * Collect Payment uses the SAME close-then-reopen-centered pattern as
+   * Visit Notes / Logs / All Visits — this is the pattern that reliably
+   * fixed the "renders at bottom of page" bug previously. Opening
+   * QuickPayDialogComponent ON TOP of this dialog (without closing it
+   * first) reintroduces that exact bug, so we don't do that anymore.
+   *
+   * Since closing this dialog loses the in-memory "Paid $xx.xx" button
+   * state, we reopen THIS SAME appointment dialog after QuickPay closes,
+   * now with the freshly-saved appointment data and paidAmount carried
+   * forward — so the button correctly shows "Paid $xx.xx" once the
+   * dialog reappears.
+   */
   collectPayment() {
     if (!this.validateRequiredFields()) {
       this.snack.open("Please complete required fields before collecting payment.", "×", { duration: 3500 });
@@ -626,18 +667,41 @@ export class AppointmentDialogComponent implements OnInit {
     req.subscribe({
       next: (appt: Appointment) => {
         this.saving.set(false);
-        this.data.appointment = appt; // keep dialog's reference fresh
+        this.snack.open("Appointment saved. Opening Collect Payment…", "×", { duration: 2000 });
         (document.activeElement as HTMLElement)?.blur();
-        const ref = this.dialog.open(QuickPayDialogComponent, {
-          width: "480px",
-          data: { appointment: appt },
-          disableClose: false,
-        });
-        ref.afterClosed().subscribe(result => {
-          if (result?.paid) {
-            this.paidAmount.set(result.amount);
-          }
-        });
+        this.dialogRef.close(true); // true = schedule should refresh
+
+        setTimeout(() => {
+          const payRef = this.dialog.open(QuickPayDialogComponent, {
+            width: "480px",
+            data: { appointment: appt },
+            disableClose: false,
+          });
+
+          payRef.afterClosed().subscribe(result => {
+            // Reopen the appointment dialog with fresh data so the user
+            // lands back where they were, now showing "Paid $xx.xx" if
+            // a payment was posted.
+            setTimeout(() => {
+              const reopened = this.dialog.open(AppointmentDialogComponent, {
+                width: "720px",
+                data: { ...this.data, appointment: appt },
+                disableClose: true,
+              });
+              if (result?.paid) {
+                // Give the freshly-opened instance its paid state —
+                // safe because afterOpened fires after construction.
+                reopened.componentInstance.paidAmount.set(result.amount);
+              }
+              // Note: the schedule grid refresh was already triggered by
+              // this.dialogRef.close(true) above when we closed the
+              // original dialog instance — the reopened dialog's own
+              // afterClosed (handled by whoever opened IT, i.e. the
+              // schedule component never sees this nested reopen) doesn't
+              // need to re-signal anything here.
+            }, 200);
+          });
+        }, 200);
       },
       error: e => {
         this.saving.set(false);

@@ -1,0 +1,660 @@
+From 548d00efb6b3787a5df14515ae8291ca2b4be2dd Mon Sep 17 00:00:00 2001
+From: Sanket Bumb <sanket@yourowncrm.com>
+Date: Mon, 15 Jun 2026 19:16:39 +0000
+Subject: [PATCH] feat: resource hours date ranges, per-day location, bulk-save
+ (fixes race condition)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Root cause of 'only second configuration saves':
+- Previous saveHours() fired 7-14 parallel POST requests (one per day per
+  config), each independently re-reading existing rows and upserting by
+  (dayOfWeek, priority). Under concurrency, these requests raced —
+  whichever committed LAST for a given (day, priority) won, so earlier
+  configs' data was frequently lost or overwritten.
+
+Fix — bulk replace endpoint:
+- New PUT /api/resource-schedules?entityType=X&entityId=Y accepts the
+  ENTIRE schedule as one request: { rows: [...] }
+- Backend deletes all existing rows for the entity and re-inserts the
+  full set in ONE transaction — no race condition possible
+- Old single-row POST kept for backward compatibility
+
+Resource Hours UI — new fields per requirements:
+- Each config card now has Start Date (required) and End Date (optional,
+  blank = 'Always Active', shown with a badge)
+- Location moved from the config-card header to a PER-DAY dropdown in
+  the days table, with 'All Locations' as a working option (null
+  locationId on the row)
+- Copy Monday now also copies the location selection
+- Status column shows the assigned location per day when set
+- Frontend validates Start Date is required and End Date >= Start Date
+  before saving; backend also validates and throws BusinessException
+
+Backend — ResourceScheduleController:
+- applyRowFields() validates and sets effectiveFrom (required) and
+  effectiveTo (optional, null = always active) per row
+- locationId per row resolves to a Location entity or null ('All
+  Locations') — previously this was only possible at config level
+- toResponse() DTO now includes startDate/endDate alongside
+  locationId/locationName/locationColor
+
+Schedule grid — location color bands:
+- Now filtered by the VIEWED date (state.currentDate), not hardcoded
+  'today' — navigating dates shows that date's bands correctly
+- Bands respect each row's effective date range (startDate/endDate)
+  so expired or future-dated configs don't show on the wrong dates
+- Same date-range filter applied to the dynamic hour-range calculation
+---
+ .../ResourceScheduleController.java           | 201 +++++++++++++-----
+ .../resource-hours.component.ts               | 155 ++++++++++----
+ .../features/schedule/schedule.component.ts   |  28 ++-
+ 3 files changed, 273 insertions(+), 111 deletions(-)
+
+diff --git a/backend/src/main/java/com/yourowncrm/controller/ResourceScheduleController.java b/backend/src/main/java/com/yourowncrm/controller/ResourceScheduleController.java
+index d94ca17..262e499 100644
+--- a/backend/src/main/java/com/yourowncrm/controller/ResourceScheduleController.java
++++ b/backend/src/main/java/com/yourowncrm/controller/ResourceScheduleController.java
+@@ -1,5 +1,6 @@
+ package com.yourowncrm.controller;
+ 
++import com.yourowncrm.exception.BusinessException;
+ import com.yourowncrm.model.Location;
+ import com.yourowncrm.model.ResourceSchedule;
+ import com.yourowncrm.model.enums.EntityType;
+@@ -12,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
+ import org.springframework.web.bind.annotation.*;
+ 
+ import java.time.DayOfWeek;
++import java.time.LocalDate;
+ import java.time.LocalTime;
+ import java.util.ArrayList;
+ import java.util.List;
+@@ -37,9 +39,7 @@ public class ResourceScheduleController {
+ 
+     /**
+      * Returns schedules as plain DTOs (not entities) so the location is
+-     * always eagerly resolved — avoids lazy-loading serialization issues
+-     * (null / {} / LazyInitializationException) that previously made
+-     * location-based color bands on the schedule grid impossible.
++     * always eagerly resolved — avoids lazy-loading serialization issues.
+      */
+     @GetMapping
+     @Transactional(readOnly = true)
+@@ -54,25 +54,17 @@ public class ResourceScheduleController {
+ 
+         List<ResourceScheduleResponse> out = new ArrayList<>();
+         for (ResourceSchedule s : schedules) {
+-            ResourceScheduleResponse r = new ResourceScheduleResponse();
+-            r.id          = s.getId();
+-            r.entityType  = s.getEntityType().name();
+-            r.entityId    = s.getEntityId();
+-            r.priority    = s.getPriority();
+-            r.dayOfWeek   = s.getDayOfWeek().name();
+-            r.open        = s.isOpen();
+-            r.openTime    = s.getOpenTime().toString();
+-            r.closeTime   = s.getCloseTime().toString();
+-            if (s.getLocation() != null) {
+-                r.locationId    = s.getLocation().getId();
+-                r.locationName  = s.getLocation().getName();
+-                r.locationColor = s.getLocation().getColorHex();
+-            }
+-            out.add(r);
++            out.add(toResponse(s));
+         }
+         return out;
+     }
+ 
++    /**
++     * Single-row upsert — kept for backward compatibility with any callers
++     * that still post one row at a time. New frontend code should prefer
++     * the bulk PUT endpoint below to avoid race conditions when saving
++     * many rows at once.
++     */
+     @PostMapping
+     @Transactional
+     public ResponseEntity<ResourceScheduleResponse> save(
+@@ -80,7 +72,77 @@ public class ResourceScheduleController {
+             @RequestBody Map<String, Object> body) {
+ 
+         UUID tenantId = jwtProvider.getTenantId(token.substring(7));
++        ResourceSchedule schedule = upsertOne(tenantId, body, null);
++        boolean isNew = schedule.getId() == null;
++        ResourceSchedule saved = repo.save(schedule);
++        return isNew
++            ? ResponseEntity.status(201).body(toResponse(saved))
++            : ResponseEntity.ok(toResponse(saved));
++    }
++
++    /**
++     * Bulk replace — saves the ENTIRE schedule for one entity in a single
++     * transaction. All existing rows for this entity are deleted and
++     * replaced with the rows in the request body.
++     *
++     * This is the preferred endpoint: it eliminates the race condition that
++     * occurred when the frontend fired 7-14 parallel POST requests (each of
++     * which independently re-read "existing" rows before any of the others
++     * had committed, causing location/day data to be lost or overwritten
++     * inconsistently — only the last-committing request's data would stick).
++     *
++     * Request body: { "rows": [ { dayOfWeek, priority, open, openTime,
++     *                              closeTime, locationId, startDate, endDate }, ... ] }
++     */
++    @PutMapping
++    @Transactional
++    public List<ResourceScheduleResponse> replaceAll(
++            @RequestHeader("Authorization") String token,
++            @RequestParam String entityType,
++            @RequestParam Long entityId,
++            @RequestBody Map<String, Object> body) {
++
++        UUID tenantId = jwtProvider.getTenantId(token.substring(7));
++        EntityType type = EntityType.valueOf(entityType.toUpperCase());
++
++        @SuppressWarnings("unchecked")
++        List<Map<String, Object>> rows = (List<Map<String, Object>>) body.get("rows");
++        if (rows == null) rows = List.of();
++
++        // Delete all existing rows for this entity, then insert fresh —
++        // this is the simplest way to guarantee no stale/duplicate rows
++        // remain from previous configurations with different day/priority
++        // combinations.
++        List<ResourceSchedule> existing = repo
++                .findByTenantIdAndEntityTypeAndEntityIdOrderByPriorityAsc(tenantId, type, entityId);
++        repo.deleteAll(existing);
++        repo.flush();
++
++        List<ResourceScheduleResponse> out = new ArrayList<>();
++        for (Map<String, Object> row : rows) {
++            ResourceSchedule s = new ResourceSchedule();
++            s.setTenantId(tenantId);
++            s.setEntityType(type);
++            s.setEntityId(entityId);
++            applyRowFields(s, row);
++            ResourceSchedule saved = repo.save(s);
++            out.add(toResponse(saved));
++        }
++        return out;
++    }
++
++    @DeleteMapping("/{id}")
++    @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
++    public void delete(
++            @RequestHeader("Authorization") String token,
++            @PathVariable Long id) {
++        repo.deleteById(id);
++    }
+ 
++    // ── Helpers ──────────────────────────────────────────────────────────
++
++    /** Finds an existing row matching (dayOfWeek, priority) or creates a new one, then applies field updates. */
++    private ResourceSchedule upsertOne(UUID tenantId, Map<String, Object> body, List<ResourceSchedule> existingOverride) {
+         EntityType entityType = EntityType.valueOf(
+                 body.get("entityType").toString().toUpperCase());
+         Long entityId  = Long.valueOf(body.get("entityId").toString());
+@@ -88,14 +150,9 @@ public class ResourceScheduleController {
+                 ? Integer.parseInt(body.get("priority").toString()) : 0;
+         String dowStr  = body.get("dayOfWeek").toString().toUpperCase();
+         DayOfWeek dow  = DayOfWeek.valueOf(dowStr);
+-        boolean open   = Boolean.parseBoolean(body.getOrDefault("open","true").toString());
+-        String openT   = body.getOrDefault("openTime","09:00").toString();
+-        String closeT  = body.getOrDefault("closeTime","18:00").toString();
+ 
+-        // Upsert: find existing row for this entity + day + priority, or create new
+-        List<ResourceSchedule> existing =
+-            repo.findByTenantIdAndEntityTypeAndEntityIdOrderByPriorityAsc(
+-                tenantId, entityType, entityId);
++        List<ResourceSchedule> existing = existingOverride != null ? existingOverride :
++            repo.findByTenantIdAndEntityTypeAndEntityIdOrderByPriorityAsc(tenantId, entityType, entityId);
+ 
+         ResourceSchedule schedule = existing.stream()
+             .filter(s -> s.getDayOfWeek() == dow && s.getPriority() == priority)
+@@ -105,49 +162,75 @@ public class ResourceScheduleController {
+         schedule.setTenantId(tenantId);
+         schedule.setEntityType(entityType);
+         schedule.setEntityId(entityId);
+-        schedule.setPriority((short) priority);
+-        schedule.setDayOfWeek(dow);
+-        schedule.setOpen(open);
+-        schedule.setOpenTime(LocalTime.parse(openT));
+-        schedule.setCloseTime(LocalTime.parse(closeT));
+-
+-        // ── Location FK — now actually persisted ────────────────────────────
+-        Object locIdRaw = body.get("locationId");
+-        if (locIdRaw != null && !locIdRaw.toString().isBlank()) {
++        applyRowFields(schedule, body);
++        return schedule;
++    }
++
++    /** Applies day/time/location/date-range fields from a request row onto an entity. */
++    private void applyRowFields(ResourceSchedule s, Map<String, Object> row) {
++        int  priority  = row.containsKey("priority")
++                ? Integer.parseInt(row.get("priority").toString()) : 0;
++        String dowStr  = row.get("dayOfWeek").toString().toUpperCase();
++        DayOfWeek dow  = DayOfWeek.valueOf(dowStr);
++        boolean open   = Boolean.parseBoolean(row.getOrDefault("open","true").toString());
++        String openT   = row.getOrDefault("openTime","09:00").toString();
++        String closeT  = row.getOrDefault("closeTime","18:00").toString();
++
++        s.setPriority((short) priority);
++        s.setDayOfWeek(dow);
++        s.setOpen(open);
++        s.setOpenTime(LocalTime.parse(openT));
++        s.setCloseTime(LocalTime.parse(closeT));
++
++        // ── Location FK (per-day) — null = "All Locations" ──────────────────
++        Object locIdRaw = row.get("locationId");
++        if (locIdRaw != null && !locIdRaw.toString().isBlank() && !locIdRaw.toString().equals("null")) {
+             Long locationId = Long.valueOf(locIdRaw.toString());
+             Location loc = locationRepo.findById(locationId).orElse(null);
+-            schedule.setLocation(loc); // null if not found — safe default
++            s.setLocation(loc);
+         } else {
+-            schedule.setLocation(null);
++            s.setLocation(null);
+         }
+ 
+-        boolean isNew = schedule.getId() == null;
+-        ResourceSchedule saved = repo.save(schedule);
++        // ── Effective date range — startDate required, endDate optional ─────
++        Object startRaw = row.get("startDate");
++        Object endRaw   = row.get("endDate");
+ 
+-        ResourceScheduleResponse r = new ResourceScheduleResponse();
+-        r.id          = saved.getId();
+-        r.entityType  = saved.getEntityType().name();
+-        r.entityId    = saved.getEntityId();
+-        r.priority    = saved.getPriority();
+-        r.dayOfWeek   = saved.getDayOfWeek().name();
+-        r.open        = saved.isOpen();
+-        r.openTime    = saved.getOpenTime().toString();
+-        r.closeTime   = saved.getCloseTime().toString();
+-        if (saved.getLocation() != null) {
+-            r.locationId    = saved.getLocation().getId();
+-            r.locationName  = saved.getLocation().getName();
+-            r.locationColor = saved.getLocation().getColorHex();
++        if (startRaw == null || startRaw.toString().isBlank()) {
++            throw new BusinessException("Start date is required for resource schedule rows.");
+         }
++        LocalDate startDate = LocalDate.parse(startRaw.toString());
++        s.setEffectiveFrom(startDate);
+ 
+-        return isNew ? ResponseEntity.status(201).body(r) : ResponseEntity.ok(r);
++        if (endRaw != null && !endRaw.toString().isBlank() && !endRaw.toString().equals("null")) {
++            LocalDate endDate = LocalDate.parse(endRaw.toString());
++            if (endDate.isBefore(startDate)) {
++                throw new BusinessException("End date cannot be before start date.");
++            }
++            s.setEffectiveTo(endDate);
++        } else {
++            s.setEffectiveTo(null); // null = always active from startDate onward
++        }
+     }
+ 
+-    @DeleteMapping("/{id}")
+-    @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+-    public void delete(
+-            @RequestHeader("Authorization") String token,
+-            @PathVariable Long id) {
+-        repo.deleteById(id);
++    private ResourceScheduleResponse toResponse(ResourceSchedule s) {
++        ResourceScheduleResponse r = new ResourceScheduleResponse();
++        r.id          = s.getId();
++        r.entityType  = s.getEntityType().name();
++        r.entityId    = s.getEntityId();
++        r.priority    = s.getPriority();
++        r.dayOfWeek   = s.getDayOfWeek().name();
++        r.open        = s.isOpen();
++        r.openTime    = s.getOpenTime().toString();
++        r.closeTime   = s.getCloseTime().toString();
++        r.startDate   = s.getEffectiveFrom() != null ? s.getEffectiveFrom().toString() : null;
++        r.endDate     = s.getEffectiveTo()   != null ? s.getEffectiveTo().toString()   : null;
++        if (s.getLocation() != null) {
++            r.locationId    = s.getLocation().getId();
++            r.locationName  = s.getLocation().getName();
++            r.locationColor = s.getLocation().getColorHex();
++        }
++        return r;
+     }
+ 
+     /** Plain DTO — avoids lazy-loading serialization problems entirely. */
+@@ -160,6 +243,8 @@ public class ResourceScheduleController {
+         public boolean open;
+         public String openTime;
+         public String closeTime;
++        public String startDate;
++        public String endDate;
+         public Long locationId;
+         public String locationName;
+         public String locationColor;
+diff --git a/frontend/src/app/features/admin/resource-hours/resource-hours.component.ts b/frontend/src/app/features/admin/resource-hours/resource-hours.component.ts
+index 0472fa6..058d5fe 100644
+--- a/frontend/src/app/features/admin/resource-hours/resource-hours.component.ts
++++ b/frontend/src/app/features/admin/resource-hours/resource-hours.component.ts
+@@ -6,7 +6,7 @@ import { HttpClient } from "@angular/common/http";
+ import { AdminService } from "../../../core/services/admin.service";
+ import { Resource, User, Location } from "../../../shared/models/admin.model";
+ import { environment } from "../../../../environments/environment";
+-import { forkJoin, of } from "rxjs";
++import { of } from "rxjs";
+ import { catchError } from "rxjs/operators";
+ 
+ const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+@@ -17,8 +17,20 @@ const DAY_TO_ENUM: Record<string, string> = {
+   Thursday: "THURSDAY", Friday: "FRIDAY", Saturday: "SATURDAY", Sunday: "SUNDAY"
+ };
+ 
+-interface DayHours   { enabled: boolean; start: string; end: string; }
+-interface HoursConfig { id: number | null; locationId: number | null; priority: number; days: Record<string,DayHours>; }
++interface DayHours {
++  enabled: boolean;
++  start: string;
++  end: string;
++  locationId: number | null;  // null = All Locations
++}
++interface HoursConfig {
++  priority: number;
++  startDate: string;          // required — yyyy-MM-dd
++  endDate: string | null;      // optional — null = always active
++  days: Record<string, DayHours>;
++}
++
++const todayStr = () => new Date().toISOString().slice(0, 10);
+ 
+ @Component({
+   selector: "app-resource-hours",
+@@ -96,20 +108,25 @@ interface HoursConfig { id: number | null; locationId: number | null; priority:
+         <div class="card" style="margin-bottom:16px;overflow:hidden;">
+ 
+           <!-- Card header -->
+-          <div style="display:flex;align-items:center;gap:10px;padding:12px 18px;
++          <div style="display:flex;align-items:center;gap:10px;padding:12px 18px;flex-wrap:wrap;
+                       background:var(--stone);border-bottom:1px solid var(--stone-mid);">
+             <span class="badge badge-info">
+               Config #{{ ci + 1 }}{{ ci === 0 ? " — Primary" : "" }}
+             </span>
+-            <div class="form-group" style="margin:0;flex:1;max-width:240px;">
+-              <select class="form-control" style="font-size:12px;padding:5px 8px;"
+-                      [(ngModel)]="cfg.locationId">
+-                <option [ngValue]="null">All locations</option>
+-                @for (loc of locations(); track loc.id) {
+-                  <option [ngValue]="loc.id">{{ loc.name }}</option>
+-                }
+-              </select>
++
++            <!-- Date range -->
++            <div style="display:flex;align-items:center;gap:6px;">
++              <label class="form-label" style="margin:0;font-size:11px;">Start Date *</label>
++              <input type="date" class="form-control" style="font-size:12px;padding:5px 8px;width:140px;"
++                     [(ngModel)]="cfg.startDate"/>
++              <label class="form-label" style="margin:0 0 0 6px;font-size:11px;">End Date</label>
++              <input type="date" class="form-control" style="font-size:12px;padding:5px 8px;width:140px;"
++                     [(ngModel)]="cfg.endDate" placeholder="Always active"/>
++              @if (!cfg.endDate) {
++                <span class="badge badge-success" style="font-size:10px;">Always Active</span>
++              }
+             </div>
++
+             <div style="margin-left:auto;display:flex;gap:4px;">
+               @if (ci > 0) {
+                 <button class="btn btn-ghost btn-sm btn-icon"
+@@ -137,14 +154,15 @@ interface HoursConfig { id: number | null; locationId: number | null; priority:
+           </div>
+ 
+           <!-- Days table -->
+-          <div style="padding:4px 0 8px;">
+-            <table style="width:100%;border-collapse:collapse;">
++          <div style="padding:4px 0 8px;overflow-x:auto;">
++            <table style="width:100%;border-collapse:collapse;min-width:680px;">
+               <thead>
+                 <tr>
+                   <th class="day-th" style="width:44px;text-align:center;">On</th>
+                   <th class="day-th">Day</th>
+                   <th class="day-th">Opens</th>
+                   <th class="day-th">Closes</th>
++                  <th class="day-th">Location</th>
+                   <th class="day-th">Status</th>
+                 </tr>
+               </thead>
+@@ -171,11 +189,26 @@ interface HoursConfig { id: number | null; locationId: number | null; priority:
+                              [(ngModel)]="cfg.days[day].end"
+                              [disabled]="!cfg.days[day].enabled"/>
+                     </td>
++                    <td class="day-td">
++                      <select class="form-control" style="font-size:12px;padding:5px 8px;min-width:150px;"
++                              [(ngModel)]="cfg.days[day].locationId"
++                              [disabled]="!cfg.days[day].enabled">
++                        <option [ngValue]="null">All Locations</option>
++                        @for (loc of locations(); track loc.id) {
++                          <option [ngValue]="loc.id">{{ loc.name }}</option>
++                        }
++                      </select>
++                    </td>
+                     <td class="day-td">
+                       @if (cfg.days[day].enabled) {
+                         <span class="badge badge-success">
+                           {{ cfg.days[day].start }} – {{ cfg.days[day].end }}
+                         </span>
++                        @if (cfg.days[day].locationId) {
++                          <span class="badge badge-info" style="margin-left:4px;">
++                            {{ locationName(cfg.days[day].locationId) }}
++                          </span>
++                        }
+                       } @else {
+                         <span class="badge badge-neutral">Closed</span>
+                       }
+@@ -229,6 +262,11 @@ export class ResourceHoursComponent implements OnInit {
+     this.adminSvc.getLocations().subscribe(l => this.locations.set(l));
+   }
+ 
++  locationName(id: number | null): string {
++    if (!id) return "";
++    return this.locations().find(l => l.id === id)?.name ?? "";
++  }
++
+   // Parse "RESOURCE_1" → { entityType: "RESOURCE", entityId: 1 }
+   private parseKey(key: string): { entityType: string; entityId: number } {
+     const idx  = key.indexOf("_");
+@@ -265,8 +303,13 @@ export class ResourceHoursComponent implements OnInit {
+      });
+   }
+ 
++  /**
++   * Groups rows by priority into config cards. Each row carries its own
++   * locationId, startDate, and endDate now — the date range is read from
++   * the FIRST row in each priority group (all rows in a group should share
++   * the same date range, since they're saved together as one config).
++   */
+   private parseSchedules(schedules: any[]): HoursConfig[] {
+-    // Group rows by priority — each priority = one config card
+     const byPriority = new Map<number, any[]>();
+     schedules.forEach(s => {
+       const p = s.priority ?? 0;
+@@ -276,10 +319,10 @@ export class ResourceHoursComponent implements OnInit {
+     return Array.from(byPriority.entries())
+       .sort((a, b) => a[0] - b[0])
+       .map(([priority, items]) => ({
+-        id:         items[0].id ?? null,
+-        locationId: items[0].locationId ?? null,
+         priority,
+-        days:       this.buildDaysFromRows(items),
++        startDate: items[0]?.startDate ?? todayStr(),
++        endDate:   items[0]?.endDate   ?? null,
++        days:      this.buildDaysFromRows(items),
+       }));
+   }
+ 
+@@ -290,9 +333,10 @@ export class ResourceHoursComponent implements OnInit {
+         r.dayOfWeek?.toUpperCase() === DAY_TO_ENUM[day]
+       );
+       d[day] = {
+-        enabled: row?.open ?? false,
+-        start:   row?.openTime  ?? "09:00",
+-        end:     row?.closeTime ?? "18:00",
++        enabled:    row?.open ?? false,
++        start:      row?.openTime  ?? "09:00",
++        end:        row?.closeTime ?? "18:00",
++        locationId: row?.locationId ?? null,
+       };
+     });
+     return d;
+@@ -301,14 +345,19 @@ export class ResourceHoursComponent implements OnInit {
+   private defaultDays(): Record<string, DayHours> {
+     const d: Record<string, DayHours> = {};
+     DAYS.forEach((day, i) => {
+-      d[day] = { enabled: i < 5, start: "09:00", end: "18:00" };
++      d[day] = { enabled: i < 5, start: "09:00", end: "18:00", locationId: null };
+     });
+     return d;
+   }
+ 
+   addConfig() {
+     const cfgs = [...this.configs()];
+-    cfgs.push({ id: null, locationId: null, priority: cfgs.length, days: this.defaultDays() });
++    cfgs.push({
++      priority: cfgs.length,
++      startDate: todayStr(),
++      endDate: null,
++      days: this.defaultDays(),
++    });
+     this.configs.set(cfgs);
+   }
+ 
+@@ -346,52 +395,66 @@ export class ResourceHoursComponent implements OnInit {
+     const mon  = { ...cfgs[ci].days["Monday"] };
+     DAYS.slice(1).forEach(d => { cfgs[ci].days[d] = { ...mon }; });
+     this.configs.set(cfgs);
+-    this.snack.open("Monday hours copied to all days.", "×", { duration: 2000 });
++    this.snack.open("Monday hours (including location) copied to all days.", "×", { duration: 2000 });
+   }
+ 
++  /**
++   * Saves the ENTIRE schedule for the selected entity in a SINGLE bulk
++   * PUT request — replaces the previous "14 parallel POST requests" approach
++   * which had a race condition (each request independently read existing
++   * rows before others committed, so only the last-committing request's
++   * data would actually persist — this is why only the second
++   * configuration appeared to save).
++   */
+   saveHours() {
+     if (!this.selectedKey) return;
++
++    // Validate start dates are present
++    for (const cfg of this.configs()) {
++      if (!cfg.startDate) {
++        this.snack.open("Start Date is required for every configuration.", "×", { duration: 3500 });
++        return;
++      }
++      if (cfg.endDate && cfg.endDate < cfg.startDate) {
++        this.snack.open("End Date cannot be before Start Date.", "×", { duration: 3500 });
++        return;
++      }
++    }
++
+     this.saving.set(true);
+     const { entityType, entityId } = this.parseKey(this.selectedKey);
+ 
+-    // Build one row per enabled day per config
++    // Build one row per day per config — each row carries its own
++    // locationId, startDate, endDate
+     const rows: any[] = [];
+     this.configs().forEach(cfg => {
+       DAYS.forEach(day => {
+         const dh = cfg.days[day];
+         rows.push({
+-          entityType:  entityType,
+-          entityId:    entityId,
+-          locationId:  cfg.locationId,
+-          priority:    cfg.priority,
+           dayOfWeek:   DAY_TO_ENUM[day],
++          priority:    cfg.priority,
+           open:        dh.enabled,
+           openTime:    dh.start,
+           closeTime:   dh.end,
++          locationId:  dh.locationId,
++          startDate:   cfg.startDate,
++          endDate:     cfg.endDate,
+         });
+       });
+     });
+ 
+-    // POST each row — backend upserts by entityType + entityId + dayOfWeek + priority
+-    const calls = rows.map(row =>
+-      this.http.post(`${environment.apiUrl}/resource-schedules`, row)
+-               .pipe(catchError(e => of({ error: e })))
+-    );
+-
+-    forkJoin(calls).subscribe({
+-      next: results => {
++    this.http.put<any[]>(
++      `${environment.apiUrl}/resource-schedules?entityType=${entityType}&entityId=${entityId}`,
++      { rows }
++    ).subscribe({
++      next: () => {
+         this.saving.set(false);
+-        const errors = results.filter((r: any) => r?.error);
+-        if (errors.length) {
+-          this.snack.open("Some rows failed to save. Check logs.", "×", { duration: 4000 });
+-        } else {
+-          this.snack.open("Hours saved successfully.", "×", { duration: 3000 });
+-          this.onSelect(); // Reload to show saved state
+-        }
++        this.snack.open("Hours saved successfully.", "×", { duration: 3000 });
++        this.onSelect(); // Reload to show saved state
+       },
+-      error: () => {
++      error: e => {
+         this.saving.set(false);
+-        this.snack.open("Save failed. Check server logs.", "×", { duration: 4000 });
++        this.snack.open(e.error?.message ?? "Save failed. Check server logs.", "×", { duration: 4000 });
+       }
+     });
+   }
+diff --git a/frontend/src/app/features/schedule/schedule.component.ts b/frontend/src/app/features/schedule/schedule.component.ts
+index df95036..4f89566 100644
+--- a/frontend/src/app/features/schedule/schedule.component.ts
++++ b/frontend/src/app/features/schedule/schedule.component.ts
+@@ -533,19 +533,33 @@ export class ScheduleComponent implements OnInit, OnDestroy {
+       const hoursMap = new Map<string, { start: number; end: number }>();
+       const bandsMap = new Map<string, Array<{start:number;end:number;color:string;solidColor:string;locationName:string}>>();
+ 
+-      const today = new Date();
+-      const dayName = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][today.getDay()];
++      // Use the date currently shown on the schedule grid, not literally
++      // "today" — so navigating to a different date shows that date's bands.
++      const viewDate    = this.state.currentDate;
++      const viewDateStr = viewDate.toISOString().slice(0, 10);
++      const dayName = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][viewDate.getDay()];
+ 
+       results.forEach((schedules, i) => {
+         if (!schedules || !schedules.length) return;
+         const key = entries[i].key;
+ 
+-        // Filter to today's day
+-        const todayScheds = schedules.filter((s: any) =>
+-          s.open && s.dayOfWeek?.toUpperCase() === dayName
+-        );
++        // Filter to the viewed day AND within the row's effective date range
++        // (startDate required, endDate optional — null endDate = always active)
++        const todayScheds = schedules.filter((s: any) => {
++          if (!s.open || s.dayOfWeek?.toUpperCase() !== dayName) return false;
++          if (s.startDate && viewDateStr < s.startDate) return false;
++          if (s.endDate   && viewDateStr > s.endDate)   return false;
++          return true;
++        });
+ 
+-        const allOpen = schedules.filter((s: any) => s.open);
++        // Same effective-date-range filter, but across ALL days (for the
++        // dynamic hour range calc, which considers the whole week's hours)
++        const allOpen = schedules.filter((s: any) => {
++          if (!s.open) return false;
++          if (s.startDate && viewDateStr < s.startDate) return false;
++          if (s.endDate   && viewDateStr > s.endDate)   return false;
++          return true;
++        });
+ 
+         // Working hours range across all days (for dynamic grid range)
+         if (allOpen.length) {
+-- 
+2.43.0

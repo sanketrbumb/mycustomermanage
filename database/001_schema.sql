@@ -398,3 +398,13 @@ CREATE INDEX IF NOT EXISTS idx_cust_last_name_trgm  ON customers USING GIN (last
 CREATE INDEX IF NOT EXISTS idx_cust_email_trgm      ON customers USING GIN (email gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_cust_phone_trgm      ON customers USING GIN (phone gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_cust_tenant_active   ON customers (tenant_id, active);
+
+
+-- ══════════════════════════════════════════════════════════════
+-- PAYMENT METHOD ENUM FIX (V6 migration)
+-- Adds TRANSFER and OTHER to match what the frontend payment
+-- dropdowns have always offered. See V6__payment_method_enum_fix.sql
+-- for full root-cause explanation.
+-- ══════════════════════════════════════════════════════════════
+ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'TRANSFER';
+ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'OTHER';
