@@ -43,11 +43,6 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
           <div class="page-title">Resource / Staff Hours</div>
           <div class="page-subtitle">Configure working hours per resource or staff member</div>
         </div>
-        @if (selectedKey && configs().length > 0) {
-          <button class="btn btn-primary" (click)="saveHours()" [disabled]="saving()">
-            {{ saving() ? "Saving…" : "💾 Save Hours" }}
-          </button>
-        }
       </div>
 
       <!-- Selector -->
@@ -125,6 +120,10 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
               @if (!cfg.endDate) {
                 <span class="badge badge-success" style="font-size:10px;">Always Active</span>
               }
+              <button class="btn btn-primary btn-sm" style="margin-left:8px;"
+                      (click)="saveConfig(ci)" [disabled]="saving()">
+                {{ saving() && savingIndex() === ci ? "Saving…" : "💾 Save" }}
+              </button>
             </div>
 
             <div style="margin-left:auto;display:flex;gap:4px;">
@@ -192,8 +191,9 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
                     <td class="day-td">
                       <select class="form-control" style="font-size:12px;padding:5px 8px;min-width:150px;"
                               [(ngModel)]="cfg.days[day].locationId"
-                              [disabled]="!cfg.days[day].enabled">
-                        <option [ngValue]="null">All Locations</option>
+                              [disabled]="!cfg.days[day].enabled"
+                              [class.invalid-field]="cfg.days[day].enabled && !cfg.days[day].locationId">
+                        <option [ngValue]="null" disabled>— Select location —</option>
                         @for (loc of locations(); track loc.id) {
                           <option [ngValue]="loc.id">{{ loc.name }}</option>
                         }
@@ -239,6 +239,10 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
       border-bottom: 1px solid var(--stone-mid);
       vertical-align: middle;
     }
+    .invalid-field {
+      border-color: var(--danger) !important;
+      background: #fde8e6;
+    }
   `]
 })
 export class ResourceHoursComponent implements OnInit {
@@ -248,6 +252,7 @@ export class ResourceHoursComponent implements OnInit {
   configs     = signal<HoursConfig[]>([]);
   selectedKey = "";
   saving      = signal(false);
+  savingIndex = signal(-1); // tracks which config card's Save button was clicked
   days        = DAYS;
 
   constructor(
@@ -405,11 +410,20 @@ export class ResourceHoursComponent implements OnInit {
    * rows before others committed, so only the last-committing request's
    * data would actually persist — this is why only the second
    * configuration appeared to save).
+   *
+   * Each config card now has its OWN Save button (next to its Start/End
+   * Date fields) rather than one global Save button. Because the backend
+   * bulk-replace endpoint always replaces the FULL set of rows for the
+   * entity, saveConfig() still sends every config's rows in one request —
+   * this is required to avoid losing other configs — but tracks which
+   * config triggered the save (savingIndex) so only that card's button
+   * shows "Saving…".
    */
-  saveHours() {
+  saveConfig(triggeredIndex: number) {
     if (!this.selectedKey) return;
 
-    // Validate start dates are present
+    // Validate start dates, end dates, and location-per-open-day for ALL configs
+    // (since all configs are sent together regardless of which button was clicked)
     for (const cfg of this.configs()) {
       if (!cfg.startDate) {
         this.snack.open("Start Date is required for every configuration.", "×", { duration: 3500 });
@@ -419,9 +433,17 @@ export class ResourceHoursComponent implements OnInit {
         this.snack.open("End Date cannot be before Start Date.", "×", { duration: 3500 });
         return;
       }
+      for (const day of DAYS) {
+        const dh = cfg.days[day];
+        if (dh.enabled && !dh.locationId) {
+          this.snack.open(`Please select a location for ${day} (Config #${cfg.priority + 1}).`, "×", { duration: 4000 });
+          return;
+        }
+      }
     }
 
     this.saving.set(true);
+    this.savingIndex.set(triggeredIndex);
     const { entityType, entityId } = this.parseKey(this.selectedKey);
 
     // Build one row per day per config — each row carries its own
@@ -449,11 +471,13 @@ export class ResourceHoursComponent implements OnInit {
     ).subscribe({
       next: () => {
         this.saving.set(false);
-        this.snack.open("Hours saved successfully.", "×", { duration: 3000 });
+        this.savingIndex.set(-1);
+        this.snack.open(`Config #${triggeredIndex + 1} saved successfully.`, "×", { duration: 3000 });
         this.onSelect(); // Reload to show saved state
       },
       error: e => {
         this.saving.set(false);
+        this.savingIndex.set(-1);
         this.snack.open(e.error?.message ?? "Save failed. Check server logs.", "×", { duration: 4000 });
       }
     });

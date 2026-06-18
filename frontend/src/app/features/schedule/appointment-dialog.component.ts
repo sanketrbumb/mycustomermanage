@@ -28,31 +28,15 @@ import { environment } from "../../../environments/environment";
         <form [formGroup]="form">
           <div class="g2">
 
-            <!-- Resource / Staff -->
+            <!-- Date — now first in the grid, swapped with Resource/Staff -->
             <div class="form-group">
-              <label class="form-label">Resource / Staff *
-                @if (resourceTypeTag()) {
-                  <span style="display:inline-block;margin-left:6px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:var(--jade-mist);color:var(--jade);">{{ resourceTypeTag() }}</span>
-                }
-              </label>
-              <select class="form-control" formControlName="resourceKey" (change)="onResourceChange()">
-                <option value="">— Select resource or staff —</option>
-                <optgroup label="🏠 Resources">
-                  @for (r of data.activeResources || []; track r.id) {
-                    <option [value]="'RES_' + r.id">{{ r.name }}</option>
-                  }
-                </optgroup>
-                <optgroup label="👤 Staff">
-                  @for (s of data.activeStaff || []; track s.id) {
-                    <option [value]="'STAFF_' + s.id">{{ s.firstName }} {{ s.lastName }}</option>
-                  }
-                </optgroup>
-              </select>
+              <label class="form-label">Date *</label>
+              <input type="date" class="form-control" formControlName="apptDate" (change)="onDateOrResourceChange()"/>
             </div>
 
             <!-- Location — search box -->
             <div class="form-group">
-              <label class="form-label">Location</label>
+              <label class="form-label">Location *</label>
               <div style="position:relative;">
                 <input class="form-control" [formControl]="locationSearch"
                        placeholder="Search location…" autocomplete="off"
@@ -115,10 +99,26 @@ import { environment } from "../../../environments/environment";
               </select>
             </div>
 
-            <!-- Date -->
+            <!-- Resource / Staff -->
             <div class="form-group">
-              <label class="form-label">Date *</label>
-              <input type="date" class="form-control" formControlName="apptDate"/>
+              <label class="form-label">Resource / Staff *
+                @if (resourceTypeTag()) {
+                  <span style="display:inline-block;margin-left:6px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:var(--jade-mist);color:var(--jade);">{{ resourceTypeTag() }}</span>
+                }
+              </label>
+              <select class="form-control" formControlName="resourceKey" (change)="onResourceChange(); onDateOrResourceChange()">
+                <option value="">— Select resource or staff —</option>
+                <optgroup label="🏠 Resources">
+                  @for (r of data.activeResources || []; track r.id) {
+                    <option [value]="'RES_' + r.id">{{ r.name }}</option>
+                  }
+                </optgroup>
+                <optgroup label="👤 Staff">
+                  @for (s of data.activeStaff || []; track s.id) {
+                    <option [value]="'STAFF_' + s.id">{{ s.firstName }} {{ s.lastName }}</option>
+                  }
+                </optgroup>
+              </select>
             </div>
 
             <!-- Start time -->
@@ -135,7 +135,7 @@ import { environment } from "../../../environments/environment";
 
             <!-- Visit Type — search box -->
             <div class="form-group">
-              <label class="form-label">Visit Type</label>
+              <label class="form-label">Visit Type *</label>
               <div style="position:relative;">
                 <input class="form-control" [formControl]="visitTypeSearch"
                        placeholder="Search visit type…" autocomplete="off"
@@ -185,24 +185,25 @@ import { environment } from "../../../environments/environment";
               </div>
             </div>
 
-            <!-- Duration -->
-            <div class="form-group">
-              <label class="form-label">Duration (min)</label>
-              <select class="form-control" formControlName="durationMin" (change)="syncEndFromDuration()">
-                <option [ngValue]="15">15</option>
-                <option [ngValue]="30">30</option>
-                <option [ngValue]="45">45</option>
-                <option [ngValue]="60">60</option>
-                <option [ngValue]="75">75</option>
-                <option [ngValue]="90">90</option>
-                <option [ngValue]="120">120</option>
-              </select>
-            </div>
-
-            <!-- Charge amount -->
+            <!-- Charge amount + Collect Payment (replaces the old Duration field slot) -->
             <div class="form-group">
               <label class="form-label">Charge Amount ($)</label>
               <input type="number" class="form-control" formControlName="chargeAmount" step="0.01" min="0"/>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">&nbsp;</label>
+              <button class="btn btn-sm" type="button" (click)="collectPayment()"
+                      [disabled]="saving()"
+                      [class.btn-gold]="!paidAmount()"
+                      [class.btn-success-solid]="!!paidAmount()"
+                      style="width:100%;justify-content:center;">
+                @if (paidAmount()) {
+                  ✓ Paid {{ paidAmount() | currency }}
+                } @else {
+                  💳 Collect Payment
+                }
+              </button>
             </div>
 
             <!-- Notes -->
@@ -223,17 +224,6 @@ import { environment } from "../../../environments/environment";
             </div>
           }
 
-          <!-- Payment status bar -->
-          <div class="pay-status-bar">
-            <span class="pay-label">Payment:</span>
-            <span class="badge" [ngClass]="data.appointment?.invoiceId ? 'badge-success' : 'badge-neutral'">
-              {{ data.appointment?.invoiceId ? "Invoiced" : "Unpaid" }}
-            </span>
-            <span style="flex:1"></span>
-            <button class="btn btn-gold btn-sm" type="button" (click)="collectPayment()">
-              💳 Collect Payment
-            </button>
-          </div>
         </form>
       </div>
 
@@ -262,8 +252,8 @@ import { environment } from "../../../environments/environment";
     .conflict-alert { display:flex;align-items:center;gap:8px;border-radius:var(--radius);padding:10px 14px;font-size:13px;margin-top:12px; }
     .conflict-alert.is-warning { background:#fef0d8;border:1px solid #f5c87a;color:#7a4800; }
     .conflict-alert.is-error   { background:#fde8e6;border:1px solid #f5c8c8;color:var(--danger); }
-    .pay-status-bar { display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--stone);border-radius:var(--radius);margin-top:14px;font-size:12px; }
-    .pay-label { font-weight:600;color:var(--ink-mid);text-transform:uppercase; }
+    .btn-success-solid { background:var(--success);color:#fff;border-color:var(--success); }
+    .btn-success-solid:hover { opacity:.9; }
     .ac-dropdown { position:absolute;top:100%;left:0;right:0;background:var(--white);border:1.5px solid var(--jade-light);border-radius:var(--radius);box-shadow:var(--shadow-md);z-index:200;max-height:220px;overflow-y:auto; }
     .ac-item { padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--stone-mid); }
     .ac-item:hover { background:var(--jade-mist); }
@@ -279,7 +269,7 @@ export class AppointmentDialogComponent implements OnInit {
     apptDate:      ["", Validators.required],
     startTime:     ["09:00", Validators.required],
     endTime:       ["10:00", Validators.required],
-    visitTypeId:   [null as number | null],
+    visitTypeId:   [null as number | null, Validators.required],
     visitStatusId: [null as number | null, Validators.required],
     durationMin:   [60],
     chargeAmount:  [0],
@@ -297,6 +287,7 @@ export class AppointmentDialogComponent implements OnInit {
   locationResults = signal<Location[]>([]);
   showLocDrop    = signal(false);
   selectedLocationId: number | null = null;
+  locationManuallySet = false; // becomes true once user manually picks/clears a location
   selectedLocationName = signal("");
 
   // Visit Type search
@@ -316,6 +307,7 @@ export class AppointmentDialogComponent implements OnInit {
 
   saving    = signal(false);
   checking  = signal(false);
+  paidAmount = signal<number | null>(null); // tracks whether payment was collected this session
   conflictMsg = signal("");
   conflictIsWarning = signal(false);
   private pendingPayload: any = null;  // stored when user sees warning and hits "Book Anyway"
@@ -413,6 +405,12 @@ export class AppointmentDialogComponent implements OnInit {
       this.form.patchValue({ resourceKey: "STAFF_" + this.data.staffId, staffId: this.data.staffId });
       this.resourceTypeTag.set("Staff");
     }
+
+    // Auto-populate Location based on the resource's working-hours config
+    // for this date, falling back to the resource/staff's profile location
+    if (this.data.resourceId || this.data.staffId) {
+      this.onDateOrResourceChange();
+    }
   }
 
   private patchFromAppointment() {
@@ -459,11 +457,13 @@ export class AppointmentDialogComponent implements OnInit {
     this.selectedLocationName.set(loc.name);
     this.locationSearch.setValue(loc.name, { emitEvent: false });
     this.showLocDrop.set(false);
+    this.locationManuallySet = true; // user has taken control — stop auto-populating
   }
   clearLocation() {
     this.selectedLocationId = null;
     this.selectedLocationName.set("");
     this.locationSearch.setValue("", { emitEvent: false });
+    this.locationManuallySet = true;
   }
 
   // ── Visit type search ─────────────────────────────────────────
@@ -506,6 +506,66 @@ export class AppointmentDialogComponent implements OnInit {
     else { this.resourceTypeTag.set("Room"); }
   }
 
+  /**
+   * Auto-populates the Location field based on the selected Resource/Staff's
+   * working-hours configuration for the chosen appointment date:
+   *   1. Fetch /api/resource-schedules for the selected entity
+   *   2. Find the row matching the date's day-of-week AND within the row's
+   *      effective date range (startDate/endDate)
+   *   3. If found and it has a location, use that
+   *   4. Otherwise, fall back to the Resource/Staff's profile locationId
+   * Only runs automatically when the user hasn't manually picked a
+   * location themselves (locationManuallySet) — once they touch the
+   * Location field directly, auto-population stops overriding their choice.
+   */
+  onDateOrResourceChange() {
+    if (this.locationManuallySet) return;
+
+    const key = this.form.value.resourceKey ?? "";
+    const date = this.form.value.apptDate;
+    if (!key || !date) return;
+
+    const idx = key.indexOf("_");
+    const type = key.substring(0, idx);
+    const id = Number(key.substring(idx + 1));
+    const entityType = type === "STAFF" ? "STAFF" : "RESOURCE";
+
+    this.http.get<any[]>(`${environment.apiUrl}/resource-schedules?entityType=${entityType}&entityId=${id}`)
+      .pipe(catchError(() => of([])))
+      .subscribe(schedules => {
+        const d = new Date(date + "T00:00:00");
+        const dayName = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][d.getDay()];
+
+        const match = (schedules ?? []).find((s: any) => {
+          if (!s.open || s.dayOfWeek?.toUpperCase() !== dayName) return false;
+          if (s.startDate && date < s.startDate) return false;
+          if (s.endDate   && date > s.endDate)   return false;
+          return true;
+        });
+
+        if (match?.locationId) {
+          this.applyAutoLocation(match.locationId, match.locationName);
+        } else {
+          // No schedule entry (or no location on it) for this day —
+          // fall back to the Resource/Staff's profile default location
+          const profileLocId = type === "STAFF"
+            ? (this.data.allStaff ?? this.data.activeStaff ?? []).find((s: any) => s.id === id)?.locationId
+            : (this.data.activeResources ?? []).find((r: any) => r.id === id)?.locationId;
+
+          if (profileLocId) {
+            const loc = this._allLocations.find(l => l.id === profileLocId);
+            if (loc) this.applyAutoLocation(loc.id, loc.name);
+          }
+        }
+      });
+  }
+
+  private applyAutoLocation(locationId: number, locationName: string) {
+    this.selectedLocationId = locationId;
+    this.selectedLocationName.set(locationName);
+    this.locationSearch.setValue(locationName, { emitEvent: false });
+  }
+
   // ── Customer ──────────────────────────────────────────────────
   onCustomerBlur() { setTimeout(() => this.showCustomerDrop.set(false), 200); }
   selectCustomer(c: Customer) {
@@ -541,13 +601,47 @@ export class AppointmentDialogComponent implements OnInit {
   // This guarantees: (a) no data loss — every popup saves first,
   // (b) consistent centered positioning for every popup.
 
+  /**
+   * Collect Payment now lives inline (replacing the old Charge Amount input
+   * slot) instead of in the footer. It saves the appointment first (so the
+   * charge amount and other in-progress edits aren't lost), but — unlike
+   * Visit Notes/Logs — does NOT close this dialog, since Collect Payment is
+   * a quick action the user expects to return from immediately.
+   */
   collectPayment() {
-    this.saveThenOpen("Collect Payment", appt => {
-      this.dialog.open(QuickPayDialogComponent, {
-        width: "480px",
-        data: { appointment: appt },
-        disableClose: false,
-      });
+    if (!this.validateRequiredFields()) {
+      this.snack.open("Please complete required fields before collecting payment.", "×", { duration: 3500 });
+      return;
+    }
+    const payload = this.buildPayload();
+    payload.allowDoubleBook = true;
+    payload.allowOutsideHours = true;
+    this.saving.set(true);
+
+    const req = this.data.appointment
+      ? this.apptSvc.update(this.data.appointment.id, payload)
+      : this.apptSvc.create(payload);
+
+    req.subscribe({
+      next: (appt: Appointment) => {
+        this.saving.set(false);
+        this.data.appointment = appt; // keep dialog's reference fresh
+        (document.activeElement as HTMLElement)?.blur();
+        const ref = this.dialog.open(QuickPayDialogComponent, {
+          width: "480px",
+          data: { appointment: appt },
+          disableClose: false,
+        });
+        ref.afterClosed().subscribe(result => {
+          if (result?.paid) {
+            this.paidAmount.set(result.amount);
+          }
+        });
+      },
+      error: e => {
+        this.saving.set(false);
+        this.conflictMsg.set(e.error?.message ?? "Could not save appointment.");
+      }
     });
   }
 
@@ -600,9 +694,28 @@ export class AppointmentDialogComponent implements OnInit {
    * If the form is invalid or save fails, the target dialog is NOT opened
    * and the appointment dialog stays open so the user can fix the issue.
    */
-  private saveThenOpen(targetName: string, openFn: (appt: Appointment) => void) {
+  /**
+   * Validates both the Angular reactive form AND the standalone Location
+   * field (selectedLocationId isn't part of the form group since it's
+   * driven by a custom search box, not a plain formControl).
+   * Returns true if everything required is filled in.
+   */
+  private validateRequiredFields(): boolean {
+    let ok = true;
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      ok = false;
+    }
+    if (!this.selectedLocationId) {
+      this.conflictIsWarning.set(false);
+      this.conflictMsg.set("Location is required.");
+      ok = false;
+    }
+    return ok;
+  }
+
+  private saveThenOpen(targetName: string, openFn: (appt: Appointment) => void) {
+    if (!this.validateRequiredFields()) {
       this.snack.open(`Please complete required fields before opening ${targetName}.`, "×", { duration: 3500 });
       return;
     }
@@ -666,7 +779,7 @@ export class AppointmentDialogComponent implements OnInit {
 
   // ── Save with double-booking + outside-hours warnings ─────────
   save() {
-    if (this.form.invalid) { this.form.markAllAsTouched(); return; }
+    if (!this.validateRequiredFields()) return;
     const payload = this.buildPayload();
     this.pendingPayload = payload;
     this.checking.set(true);
@@ -1077,7 +1190,7 @@ export class QuickPayDialogComponent {
       next: () => {
         this.saving.set(false);
         this.snack.open("Payment posted successfully.", "×", { duration: 3000 });
-        this.dialogRef.close(true);
+        this.dialogRef.close({ paid: true, amount: this.amount });
       },
       error: e => {
         this.saving.set(false);

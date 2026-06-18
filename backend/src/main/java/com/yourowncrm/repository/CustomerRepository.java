@@ -11,16 +11,43 @@ import java.util.UUID;
 @Repository
 public interface CustomerRepository extends JpaRepository<Customer, Long> {
 
-    @Query("""
-        SELECT c FROM Customer c
-        WHERE c.tenantId = :tenantId
-          AND c.active   = TRUE
-          AND (LOWER(c.firstName) LIKE LOWER(CONCAT('%',:q,'%'))
-           OR  LOWER(c.lastName)  LIKE LOWER(CONCAT('%',:q,'%'))
-           OR  c.phone            LIKE CONCAT('%',:q,'%')
-           OR  LOWER(c.email)     LIKE LOWER(CONCAT('%',:q,'%')))
-        ORDER BY c.lastName, c.firstName
-        """)
+    /**
+     * Native query using ILIKE instead of JPQL's LOWER(x) LIKE LOWER(y).
+     * ILIKE pairs directly with the pg_trgm GIN indexes added in V5
+     * (idx_cust_first_name_trgm, idx_cust_last_name_trgm, etc.) — the
+     * LOWER()-wrapped JPQL version could not use those indexes at all,
+     * forcing a full table scan on every keystroke of the customer
+     * search box.
+     *
+     * tenant_id + active are filtered first since idx_cust_tenant_active
+     * narrows the candidate rows before the trigram indexes are consulted
+     * for the text match.
+     */
+    @Query(
+        value = """
+            SELECT * FROM customers c
+            WHERE c.tenant_id = :tenantId
+              AND c.active    = TRUE
+              AND (
+                    c.first_name ILIKE CONCAT('%', :q, '%')
+                 OR c.last_name  ILIKE CONCAT('%', :q, '%')
+                 OR c.phone      ILIKE CONCAT('%', :q, '%')
+                 OR c.email      ILIKE CONCAT('%', :q, '%')
+              )
+            ORDER BY c.last_name, c.first_name
+            """,
+        countQuery = """
+            SELECT COUNT(*) FROM customers c
+            WHERE c.tenant_id = :tenantId
+              AND c.active    = TRUE
+              AND (
+                    c.first_name ILIKE CONCAT('%', :q, '%')
+                 OR c.last_name  ILIKE CONCAT('%', :q, '%')
+                 OR c.phone      ILIKE CONCAT('%', :q, '%')
+                 OR c.email      ILIKE CONCAT('%', :q, '%')
+              )
+            """,
+        nativeQuery = true)
     Page<Customer> search(@Param("tenantId") UUID tenantId,
                           @Param("q") String q,
                           Pageable pageable);

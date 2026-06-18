@@ -597,6 +597,11 @@ export class ScheduleComponent implements OnInit, OnDestroy {
       next: a  => { this.appointments.set(a); this.loading.set(false); },
       error: () => this.loading.set(false)
     });
+    // Recompute location color bands for the NEWLY VIEWED date — previously
+    // this only ran once at component init (always against "today"), so
+    // every other date showed the same bands as whatever day the page first
+    // loaded on. Now it recalculates per date navigation.
+    this.loadWorkingHours();
   }
 
   loadWeekSchedule() {

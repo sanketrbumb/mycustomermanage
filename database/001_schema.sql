@@ -385,3 +385,16 @@ ALTER TABLE locations    ALTER COLUMN color_hex TYPE VARCHAR(7) USING TRIM(color
 ALTER TABLE resources    ALTER COLUMN color_hex TYPE VARCHAR(7) USING TRIM(color_hex)::VARCHAR;
 ALTER TABLE visit_statuses ALTER COLUMN color_hex TYPE VARCHAR(7) USING TRIM(color_hex)::VARCHAR;
 ALTER TABLE visit_types  ALTER COLUMN color_hex TYPE VARCHAR(7) USING TRIM(color_hex)::VARCHAR;
+
+
+-- ══════════════════════════════════════════════════════════════
+-- CUSTOMER SEARCH PERFORMANCE FIX (V5 migration)
+-- Run if schema was created before this fix. See V5__customer_search_performance.sql
+-- for full explanation of why this was needed.
+-- ══════════════════════════════════════════════════════════════
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_cust_first_name_trgm ON customers USING GIN (first_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_cust_last_name_trgm  ON customers USING GIN (last_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_cust_email_trgm      ON customers USING GIN (email gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_cust_phone_trgm      ON customers USING GIN (phone gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_cust_tenant_active   ON customers (tenant_id, active);

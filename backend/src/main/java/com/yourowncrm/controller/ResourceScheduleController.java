@@ -182,14 +182,27 @@ public class ResourceScheduleController {
         s.setOpenTime(LocalTime.parse(openT));
         s.setCloseTime(LocalTime.parse(closeT));
 
-        // ── Location FK (per-day) — null = "All Locations" ──────────────────
+        // ── Location FK (per-day) — now REQUIRED for any open day ────────────
+        // "All Locations" option was removed from the UI; a day marked open
+        // must have a specific location assigned.
         Object locIdRaw = row.get("locationId");
-        if (locIdRaw != null && !locIdRaw.toString().isBlank() && !locIdRaw.toString().equals("null")) {
+        boolean hasLocation = locIdRaw != null && !locIdRaw.toString().isBlank()
+                && !locIdRaw.toString().equals("null");
+
+        if (open && !hasLocation) {
+            throw new BusinessException(
+                "Location is required for " + dow + " — please select a location for every open day.");
+        }
+
+        if (hasLocation) {
             Long locationId = Long.valueOf(locIdRaw.toString());
             Location loc = locationRepo.findById(locationId).orElse(null);
+            if (loc == null) {
+                throw new BusinessException("Selected location not found for " + dow + ".");
+            }
             s.setLocation(loc);
         } else {
-            s.setLocation(null);
+            s.setLocation(null); // only reachable when the day is closed
         }
 
         // ── Effective date range — startDate required, endDate optional ─────
