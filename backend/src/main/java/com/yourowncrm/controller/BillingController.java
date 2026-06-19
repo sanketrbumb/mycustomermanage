@@ -7,6 +7,8 @@ import com.yourowncrm.dto.response.ReportSummary;
 import com.yourowncrm.security.JwtTokenProvider;
 import com.yourowncrm.service.BillingService;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -18,6 +20,8 @@ import java.util.UUID;
 
 @RestController
 public class BillingController {
+
+    private static final Logger log = LoggerFactory.getLogger(BillingController.class);
 
     private final BillingService  service;
     private final JwtTokenProvider jwtProvider;
@@ -91,7 +95,20 @@ public class BillingController {
     public void postPayment(
             @RequestHeader("Authorization") String token,
             @Valid @RequestBody PaymentRequest req) {
-        service.postPayment(tenantId(token), req, userId(token));
+        log.info("PAYMENT_POST: customerId={} method={} amount={} invoiceIds={} paymentDate={}",
+                req.getCustomerId(),
+                req.getMethod(),
+                req.getAmount(),
+                req.getInvoiceIds(),
+                req.getPaymentDate());
+        try {
+            service.postPayment(tenantId(token), req, userId(token));
+            log.info("PAYMENT_POST: SUCCESS customerId={} amount={}", req.getCustomerId(), req.getAmount());
+        } catch (Exception e) {
+            log.error("PAYMENT_POST: FAILED customerId={} amount={} method={} error={}",
+                    req.getCustomerId(), req.getAmount(), req.getMethod(), e.getMessage(), e);
+            throw e; // re-throw so Spring still returns the correct error response
+        }
     }
 
     // ── Reports ───────────────────────────────────────────────────────
