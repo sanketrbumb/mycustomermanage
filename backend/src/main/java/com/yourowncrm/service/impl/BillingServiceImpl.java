@@ -240,6 +240,40 @@ public class BillingServiceImpl implements BillingService {
         log.info("Payment " + payment.getPaymentNumber() + " posted for tenant " + tenantId);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<com.yourowncrm.dto.response.PaymentResponse> getPayments(
+            UUID tenantId, Long invoiceId, LocalDate from, LocalDate to) {
+
+        List<com.yourowncrm.model.Payment> payments;
+
+        if (invoiceId != null) {
+            payments = paymentRepo.findByInvoiceId(tenantId, invoiceId);
+        } else if (from != null && to != null) {
+            payments = paymentRepo.findByDateRange(tenantId, from, to);
+        } else {
+            LocalDate todayYearStart = LocalDate.now().withDayOfYear(1);
+            payments = paymentRepo.findByDateRange(tenantId, todayYearStart, LocalDate.now());
+        }
+
+        return payments.stream().map(p -> {
+            com.yourowncrm.dto.response.PaymentResponse r = new com.yourowncrm.dto.response.PaymentResponse();
+            r.id               = p.getId();
+            r.paymentNumber    = p.getPaymentNumber();
+            r.customerId       = p.getCustomer().getId();
+            r.customerFullName = p.getCustomer().getFirstName() + " " + p.getCustomer().getLastName();
+            r.amount           = p.getAmount();
+            r.method           = p.getMethod() != null ? p.getMethod().name() : null;
+            r.reference        = p.getReference();
+            r.paymentDate      = p.getPaymentDate();
+            r.notes            = p.getNotes();
+            r.invoiceNumbers   = p.getInvoiceLinks().stream()
+                .map(l -> l.getInvoice().getInvoiceNumber())
+                .toList();
+            return r;
+        }).toList();
+    }
+
     // ── REPORTING ────────────────────────────────────────────────────────────
 
     @Override

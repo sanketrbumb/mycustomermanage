@@ -8,7 +8,7 @@ import java.util.Map;
 
 public class PaymentRequest {
     @NotNull private Long customerId;
-    @NotEmpty private List<Long> invoiceIds;
+    private List<Long> invoiceIds; // optional — empty = outstanding payment
     private Map<Long, BigDecimal> allocation;
     @NotNull private PaymentMethod method;
     @NotNull @DecimalMin("0.01") private BigDecimal amount;

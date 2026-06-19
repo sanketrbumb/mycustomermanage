@@ -89,6 +89,15 @@ public class BillingController {
     }
 
     // ── Payments ──────────────────────────────────────────────────────
+    @GetMapping("/api/payments")
+    public List<com.yourowncrm.dto.response.PaymentResponse> getPayments(
+            @RequestHeader("Authorization") String token,
+            @RequestParam(required = false) Long invoiceId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return service.getPayments(tenantId(token), invoiceId, from, to);
+    }
+
     @PostMapping("/api/payments")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','MANAGER','STAFF')")
     @ResponseStatus(HttpStatus.CREATED)

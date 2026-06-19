@@ -24,6 +24,19 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             @Param("from")     LocalDate from,
             @Param("to")       LocalDate to);
 
+    @Query("""
+        SELECT DISTINCT p FROM Payment p
+        JOIN p.invoiceLinks l
+        WHERE p.tenantId = :tenantId
+          AND l.invoice.id = :invoiceId
+        ORDER BY p.paymentDate DESC
+        """)
+    List<Payment> findByInvoiceId(
+            @Param("tenantId")  UUID tenantId,
+            @Param("invoiceId") Long invoiceId);
+
+    List<Payment> findByTenantIdOrderByPaymentDateDesc(UUID tenantId);
+
     @Query("SELECT COALESCE(MAX(CAST(SUBSTRING(p.paymentNumber, 5) AS INTEGER)), 0) FROM Payment p WHERE p.tenantId = :tenantId")
     int findMaxPaymentSequence(@Param("tenantId") UUID tenantId);
 }
