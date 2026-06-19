@@ -27,5 +27,22 @@
 -- use it going forward.
 -- ════════════════════════════════════════════════════════════════
 
+-- This migration is defensive: if payment_method doesn't exist yet
+-- (e.g. V1 was skipped, or the database was provisioned by running
+-- database/001_schema.sql manually rather than letting Flyway run
+-- V1-V5 in order), create it directly with ALL values already
+-- included — this avoids a same-transaction CREATE TYPE + ALTER TYPE
+-- ADD VALUE sequence, which has inconsistent support across Postgres
+-- versions due to internal enum OID visibility rules.
+--
+-- If the type already exists (the expected case on a normally
+-- provisioned database), just add the two new values to it.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_method') THEN
+        CREATE TYPE payment_method AS ENUM ('CASH','CARD','ONLINE','CHECK','TRANSFER','OTHER');
+    END IF;
+END$$;
+
 ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'TRANSFER';
 ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'OTHER';
