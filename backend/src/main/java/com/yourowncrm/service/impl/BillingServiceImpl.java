@@ -177,12 +177,15 @@ public class BillingServiceImpl implements BillingService {
     @Override
     @Transactional
     public void postPayment(UUID tenantId, PaymentRequest req, Long userId) {
-        if (req.getInvoiceIds() == null || req.getInvoiceIds().isEmpty())
-            throw new BusinessException("At least one invoice must be specified");
+        // invoiceIds is now optional — empty list = outstanding payment
+        // (payment recorded against the customer without linking to any invoice)
+        final boolean hasInvoices = req.getInvoiceIds() != null && !req.getInvoiceIds().isEmpty();
 
-        List<Invoice> invoices = req.getInvoiceIds().stream()
-            .map(id -> findInvoiceOrThrow(tenantId, id))
-            .toList();
+        List<Invoice> invoices = hasInvoices
+            ? req.getInvoiceIds().stream()
+                .map(id -> findInvoiceOrThrow(tenantId, id))
+                .toList()
+            : List.of();
 
         invoices.forEach(inv -> {
             if (inv.getStatus() == InvoiceStatus.VOID)
