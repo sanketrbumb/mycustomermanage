@@ -905,7 +905,19 @@ export class AppointmentDialogComponent implements OnInit {
       ? this.apptSvc.update(this.data.appointment.id, payload)
       : this.apptSvc.create(payload);
     req.subscribe({
-      next: () => { this.saving.set(false); this.snack.open("Appointment saved.", "×", { duration: 2500 }); this.dialogRef.close(true); },
+      next: (appt: any) => {
+        this.saving.set(false);
+        // If the status change auto-generated an invoice, show a special message
+        if (appt?.invoiceJustCreated && appt?.invoiceNumber) {
+          this.snack.open(
+            `✅ Visit marked complete — Invoice ${appt.invoiceNumber} created automatically.`,
+            "×", { duration: 5000 }
+          );
+        } else {
+          this.snack.open("Appointment saved.", "×", { duration: 2500 });
+        }
+        this.dialogRef.close(true);
+      },
       error: e  => { this.saving.set(false); this.conflictMsg.set(e.error?.message ?? "Could not save."); }
     });
   }
@@ -1244,13 +1256,14 @@ export class QuickPayDialogComponent {
     this.saving.set(true);
     this.error.set("");
     this.http.post(`${environment.apiUrl}/payments`, {
-      customerId:  this.data.appointment.customerId,
-      invoiceIds:  [],           // outstanding payment — no invoice linked
-      amount:      this.amount,
-      method:      this.method,
-      reference:   this.reference,
-      paymentDate: this.payDate,
-      notes:       `Payment for appointment on ${this.data.appointment.apptDate}`,
+      customerId:    this.data.appointment.customerId,
+      invoiceIds:    this.data.appointment.invoiceId ? [this.data.appointment.invoiceId] : [],
+      appointmentId: this.data.appointment.id,
+      amount:        this.amount,
+      method:        this.method,
+      reference:     this.reference,
+      paymentDate:   this.payDate,
+      notes:         `Payment for appointment on ${this.data.appointment.apptDate}`,
     }).subscribe({
       next: () => {
         this.saving.set(false);

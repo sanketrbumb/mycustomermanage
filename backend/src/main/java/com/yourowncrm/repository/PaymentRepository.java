@@ -37,6 +37,11 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     List<Payment> findByTenantIdOrderByPaymentDateDesc(UUID tenantId);
 
+    @Query("SELECT p FROM Payment p WHERE p.tenantId = :tenantId AND p.appointment.id = :apptId")
+    java.util.Optional<Payment> findByTenantIdAndAppointmentId(
+            @Param("tenantId") UUID tenantId,
+            @Param("apptId")   Long apptId);
+
     @Query("SELECT COALESCE(MAX(CAST(SUBSTRING(p.paymentNumber, 5) AS INTEGER)), 0) FROM Payment p WHERE p.tenantId = :tenantId")
     int findMaxPaymentSequence(@Param("tenantId") UUID tenantId);
 }

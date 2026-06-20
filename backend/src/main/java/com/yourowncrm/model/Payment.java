@@ -21,6 +21,7 @@ public class Payment {
     @Column(columnDefinition="TEXT") private String notes;
     @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="created_by") private User createdBy;
     @Column(name="created_at") private Instant createdAt = Instant.now();
+    @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="appointment_id") private Appointment appointment;
     @OneToMany(mappedBy="payment", cascade=CascadeType.ALL, orphanRemoval=true)
     private List<PaymentInvoiceLink> invoiceLinks = new ArrayList<>();
 
@@ -46,6 +47,8 @@ public class Payment {
     public User getCreatedBy() { return createdBy; }
     public void setCreatedBy(User v) { this.createdBy=v; }
     public Instant getCreatedAt() { return createdAt; }
+    public Appointment getAppointment() { return appointment; }
+    public void setAppointment(Appointment v) { this.appointment=v; }
     public List<PaymentInvoiceLink> getInvoiceLinks() { return invoiceLinks; }
 
     public static Builder builder() { return new Builder(); }

@@ -138,6 +138,7 @@ export class ShellComponent {
       items: [
         { icon: "🧾", label: "Invoices",  route: "/billing/invoices" },
         { icon: "💳", label: "Payments",  route: "/billing/payments" },
+        { icon: "↩", label: "Refunds",   route: "/billing/refunds" },
         { icon: "📊", label: "Reports",   route: "/reports" },
       ]
     },

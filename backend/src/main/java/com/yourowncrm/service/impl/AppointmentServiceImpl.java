@@ -9,7 +9,9 @@ import com.yourowncrm.model.*;
 import com.yourowncrm.model.enums.EntityType;
 import com.yourowncrm.repository.*;
 import com.yourowncrm.service.AppointmentService;
+import com.yourowncrm.service.BillingService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +35,12 @@ public class AppointmentServiceImpl implements AppointmentService {
     private final LocationRepository         locationRepo;
     private final CustomerRepository         customerRepo;
     private final ResourceScheduleRepository scheduleRepo;
+
+    // Lazy to break the circular dependency: AppointmentServiceImpl → BillingService
+    // → AppointmentRepository → (resolved by Spring proxy at first use)
+    @Lazy
+    @Autowired
+    private BillingService billingService;
 
     @Autowired
     public AppointmentServiceImpl(AppointmentRepository appointmentRepo,
@@ -87,10 +95,37 @@ public class AppointmentServiceImpl implements AppointmentService {
     @Transactional
     public AppointmentResponse update(UUID tenantId, Long id, Long userId, AppointmentRequest req) {
         Appointment existing = findOrThrow(tenantId, id);
+
+        // Capture the OLD status before we overwrite it
+        VisitStatus oldStatus = existing.getVisitStatus();
+
         validateAndCheckConflicts(tenantId, req);
         buildAppointment(tenantId, req, existing);
         existing.setUpdatedBy(userId);
         existing = appointmentRepo.save(existing);
+
+        VisitStatus newStatus = existing.getVisitStatus();
+
+        // ── Auto-generate invoice when visit transitions to a terminal+chargeable status ──
+        // e.g. "Completed", "Done" — but NOT "Cancelled" or "No Show" (not chargeable)
+        boolean wasNotTerminal  = !oldStatus.isTerminal();
+        boolean isNowTerminal   = newStatus.isTerminal() && newStatus.isChargeable();
+        boolean hasNoInvoiceYet = existing.getInvoice() == null;
+
+        if (wasNotTerminal && isNowTerminal && hasNoInvoiceYet) {
+            try {
+                billingService.generateInvoiceFromAppointment(tenantId, id, userId);
+                log.info("Auto-generated invoice for appointment " + id
+                         + " on status change to '" + newStatus.getName() + "'");
+            } catch (Exception e) {
+                // Non-fatal — invoice can be created manually from the billing screen
+                log.warning("Could not auto-generate invoice for appointment " + id
+                            + ": " + e.getMessage());
+            }
+            // Re-fetch to pick up the newly linked invoice
+            existing = findOrThrow(tenantId, id);
+        }
+
         log.info("Appointment " + id + " updated by user " + userId);
         return toResponse(existing);
     }
@@ -335,6 +370,8 @@ public class AppointmentServiceImpl implements AppointmentService {
         r.setVisitStatusId(a.getVisitStatus().getId());
         r.setVisitStatusName(a.getVisitStatus().getName());
         r.setVisitStatusColor(a.getVisitStatus().getColorHex());
+        r.setVisitStatusTerminal(a.getVisitStatus().isTerminal());
+        r.setVisitStatusChargeable(a.getVisitStatus().isChargeable());
         r.setApptDate(a.getApptDate());
         r.setStartTime(a.getStartTime());
         r.setEndTime(a.getEndTime());

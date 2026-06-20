@@ -177,10 +177,56 @@ public class BillingServiceImpl implements BillingService {
     @Override
     @Transactional
     public void postPayment(UUID tenantId, PaymentRequest req, Long userId) {
-        // invoiceIds is now optional — empty list = outstanding payment
-        // (payment recorded against the customer without linking to any invoice)
-        final boolean hasInvoices = req.getInvoiceIds() != null && !req.getInvoiceIds().isEmpty();
+        // ── 1. Resolve appointment (if provided) ─────────────────────────────
+        Appointment appointment = null;
+        if (req.getAppointmentId() != null) {
+            appointment = apptRepo.findById(req.getAppointmentId())
+                .filter(a -> a.getTenantId().equals(tenantId))
+                .orElse(null);
 
+            // If the appointment has an invoice already, ensure invoiceIds includes it
+            if (appointment != null && appointment.getInvoice() != null) {
+                Long invId = appointment.getInvoice().getId();
+                if (req.getInvoiceIds() == null || req.getInvoiceIds().isEmpty()) {
+                    req.setInvoiceIds(List.of(invId));
+                }
+            }
+        }
+
+        // ── 2. Duplicate payment check ────────────────────────────────────────
+        // If a payment already exists for this appointment, UPDATE it instead
+        // of creating a duplicate. This fixes the "reopening the Quick Pay
+        // dialog and clicking Post Payment again creates a second payment" bug.
+        if (appointment != null) {
+            final Appointment finalAppt = appointment;
+            java.util.Optional<Payment> existing =
+                paymentRepo.findByTenantIdAndAppointmentId(tenantId, req.getAppointmentId());
+            if (existing.isPresent()) {
+                Payment pay = existing.get();
+                pay.setMethod(req.getMethod());
+                pay.setAmount(req.getAmount());
+                pay.setPaymentDate(req.getPaymentDate() != null ? req.getPaymentDate() : LocalDate.now());
+                pay.setReference(req.getReference());
+                pay.setNotes(req.getNotes());
+                paymentRepo.save(pay);
+                // Recompute invoice paid amounts
+                if (!pay.getInvoiceLinks().isEmpty()) {
+                    pay.getInvoiceLinks().forEach(link -> {
+                        Invoice inv = link.getInvoice();
+                        link.setAmountApplied(pay.getAmount());
+                        inv.setPaidAmount(pay.getAmount().setScale(2, RoundingMode.HALF_UP));
+                        inv.setStatus(pay.getAmount().compareTo(inv.getNetAmount()) >= 0
+                            ? InvoiceStatus.PAID : InvoiceStatus.PARTIAL);
+                        invoiceRepo.save(inv);
+                    });
+                }
+                log.info("Payment " + pay.getPaymentNumber() + " updated (appointment " + req.getAppointmentId() + ")");
+                return;
+            }
+        }
+
+        // ── 3. Resolve invoices ───────────────────────────────────────────────
+        final boolean hasInvoices = req.getInvoiceIds() != null && !req.getInvoiceIds().isEmpty();
         List<Invoice> invoices = hasInvoices
             ? req.getInvoiceIds().stream()
                 .map(id -> findInvoiceOrThrow(tenantId, id))
@@ -197,6 +243,7 @@ public class BillingServiceImpl implements BillingService {
         if (!customer.isActive())
             throw new BusinessException("Customer is inactive. Reactivate before posting payments.");
 
+        // ── 4. Create new payment ─────────────────────────────────────────────
         Payment payment = new Payment();
         payment.setTenantId(tenantId);
         payment.setPaymentNumber(generatePaymentNumber(tenantId));
@@ -206,6 +253,7 @@ public class BillingServiceImpl implements BillingService {
         payment.setPaymentDate(req.getPaymentDate() != null ? req.getPaymentDate() : LocalDate.now());
         payment.setReference(req.getReference());
         payment.setNotes(req.getNotes());
+        payment.setAppointment(appointment);
         userRepo.findById(userId).ifPresent(payment::setCreatedBy);
 
         BigDecimal remaining = req.getAmount();

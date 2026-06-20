@@ -93,9 +93,17 @@ public class BillingController {
     public List<com.yourowncrm.dto.response.PaymentResponse> getPayments(
             @RequestHeader("Authorization") String token,
             @RequestParam(required = false) Long invoiceId,
+            @RequestParam(required = false) String q,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return service.getPayments(tenantId(token), invoiceId, from, to);
+        List<com.yourowncrm.dto.response.PaymentResponse> all = service.getPayments(tenantId(token), invoiceId, from, to);
+        if (q == null || q.isBlank()) return all;
+        String ql = q.toLowerCase();
+        return all.stream().filter(p ->
+            (p.paymentNumber != null && p.paymentNumber.toLowerCase().contains(ql)) ||
+            (p.customerFullName != null && p.customerFullName.toLowerCase().contains(ql)) ||
+            (p.reference != null && p.reference.toLowerCase().contains(ql))
+        ).toList();
     }
 
     @PostMapping("/api/payments")

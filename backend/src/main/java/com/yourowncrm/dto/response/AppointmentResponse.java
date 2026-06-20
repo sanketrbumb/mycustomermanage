@@ -21,6 +21,9 @@ public class AppointmentResponse {
     private Long   visitStatusId;
     private String visitStatusName;
     private String visitStatusColor;
+    private boolean visitStatusTerminal;
+    private boolean visitStatusChargeable;
+    private boolean invoiceJustCreated; // true when invoice was auto-generated on this save
     private LocalDate apptDate;
     private LocalTime startTime;
     private LocalTime endTime;
@@ -64,6 +67,12 @@ public class AppointmentResponse {
     public void setVisitStatusName(String v) { this.visitStatusName=v; }
     public String getVisitStatusColor() { return visitStatusColor; }
     public void setVisitStatusColor(String v) { this.visitStatusColor=v; }
+    public boolean isVisitStatusTerminal() { return visitStatusTerminal; }
+    public void setVisitStatusTerminal(boolean v) { this.visitStatusTerminal=v; }
+    public boolean isVisitStatusChargeable() { return visitStatusChargeable; }
+    public void setVisitStatusChargeable(boolean v) { this.visitStatusChargeable=v; }
+    public boolean isInvoiceJustCreated() { return invoiceJustCreated; }
+    public void setInvoiceJustCreated(boolean v) { this.invoiceJustCreated=v; }
     public LocalDate getApptDate() { return apptDate; }
     public void setApptDate(LocalDate v) { this.apptDate=v; }
     public LocalTime getStartTime() { return startTime; }

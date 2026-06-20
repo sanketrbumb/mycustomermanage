@@ -23,6 +23,9 @@ export interface Appointment {
   notes?: string;
   invoiceId?: number;
   invoiceNumber?: string;
+  invoiceJustCreated?: boolean;
+  visitStatusTerminal?: boolean;
+  visitStatusChargeable?: boolean;
   createdAt: string;
 }
 

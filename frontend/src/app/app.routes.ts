@@ -21,6 +21,7 @@ export const routes: Routes = [
       { path: "admin/settings",       loadComponent: () => import("./features/admin/settings/settings.component").then(m => m.SettingsComponent) },
       { path: "billing/invoices",     loadComponent: () => import("./features/billing/invoice-list.component").then(m => m.InvoiceListComponent) },
       { path: "billing/payments",     loadComponent: () => import("./features/billing/payment-form.component").then(m => m.PaymentFormComponent) },
+      { path: "billing/refunds",      loadComponent: () => import("./features/billing/refund-list.component").then(m => m.RefundListComponent) },
       { path: "reports",              loadComponent: () => import("./features/reports/reports.component").then(m => m.ReportsComponent) },
     ]
   },

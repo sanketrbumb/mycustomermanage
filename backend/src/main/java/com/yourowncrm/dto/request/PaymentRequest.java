@@ -9,6 +9,7 @@ import java.util.Map;
 public class PaymentRequest {
     @NotNull private Long customerId;
     private List<Long> invoiceIds; // optional — empty = outstanding payment
+    private Long appointmentId;    // optional — links payment directly to appointment
     private Map<Long, BigDecimal> allocation;
     @NotNull private PaymentMethod method;
     @NotNull @DecimalMin("0.01") private BigDecimal amount;
@@ -20,6 +21,8 @@ public class PaymentRequest {
     public void setCustomerId(Long v) { this.customerId=v; }
     public List<Long> getInvoiceIds() { return invoiceIds; }
     public void setInvoiceIds(List<Long> v) { this.invoiceIds=v; }
+    public Long getAppointmentId() { return appointmentId; }
+    public void setAppointmentId(Long v) { this.appointmentId=v; }
     public Map<Long, BigDecimal> getAllocation() { return allocation; }
     public void setAllocation(Map<Long, BigDecimal> v) { this.allocation=v; }
     public PaymentMethod getMethod() { return method; }
