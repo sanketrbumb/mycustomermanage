@@ -1048,6 +1048,12 @@ export class AllVisitsDialogComponent implements OnInit {
           </div>
         }
         @if (tab === 'charges') {
+          @if (visitTypeCharge) {
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--jade-mist);border-radius:var(--radius);margin-bottom:10px;font-size:13px;">
+              <span style="color:var(--jade);font-weight:600;">Base charge (Visit Type)</span>
+              <span style="font-weight:700;">{{ visitTypeCharge.description }} — {{ visitTypeCharge.unitPrice | currency }}</span>
+            </div>
+          }
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
             <thead><tr>
               <th style="padding:7px 10px;text-align:left;background:var(--stone);border-bottom:1px solid var(--stone-mid);">Description</th>
@@ -1086,17 +1092,45 @@ export class AllVisitsDialogComponent implements OnInit {
 export class VisitNotesDialogComponent implements OnInit {
   tab = "soap"; saving = signal(false); saveError = signal("");
   notes = { subjective:"",objective:"",assessment:"",plan:"",chiefComplaint:"",followup:"",treatment:"",products:"",therapistInitials:"" };
+
+  /** Only ADDITIONAL charges — VISIT_TYPE row is shown read-only */
   charges: {description:string;code:string;qty:number;unitPrice:number;}[] = [];
+  visitTypeCharge: {description:string;unitPrice:number} | null = null;
+
   constructor(@Inject(MAT_DIALOG_DATA) public data: any, public dialogRef: MatDialogRef<VisitNotesDialogComponent>, private http: HttpClient, private snack: MatSnackBar) {}
+
   ngOnInit() {
+    // Load SOAP notes
     this.http.get<any>(`${environment.apiUrl}/appointments/${this.data.appointmentId}/notes`)
-      .subscribe({ next: n => { if (n) { Object.assign(this.notes, { subjective:n.subjective??"",objective:n.objective??"",assessment:n.assessment??"",plan:n.plan??"",chiefComplaint:n.chiefComplaint??"",followup:n.followup??"",treatment:n.treatment??"",products:n.products??"",therapistInitials:n.therapistInitials??"" }); this.charges = n.additionalCharges ?? []; } }, error: () => {} });
+      .subscribe({ next: n => { if (n) { Object.assign(this.notes, { subjective:n.subjective??"",objective:n.objective??"",assessment:n.assessment??"",plan:n.plan??"",chiefComplaint:n.chiefComplaint??"",followup:n.followup??"",treatment:n.treatment??"",products:n.products??"",therapistInitials:n.therapistInitials??"" }); } }, error: () => {} });
+
+    // Load charges from the new appt_charges table
+    this.http.get<any[]>(`${environment.apiUrl}/appointments/${this.data.appointmentId}/charges`)
+      .subscribe({
+        next: rows => {
+          this.visitTypeCharge = rows.find(r => r.source === 'VISIT_TYPE') ?? null;
+          this.charges = rows
+            .filter(r => r.source === 'ADDITIONAL')
+            .map(r => ({ description: r.description ?? '', code: r.chargeCode ?? '', qty: Number(r.quantity ?? 1), unitPrice: Number(r.unitPrice ?? 0) }));
+        },
+        error: () => {}
+      });
   }
-  chargesTotal(): number { return this.charges.reduce((s, r) => s + r.qty * r.unitPrice, 0); }
+
+  chargesTotal(): number {
+    const addl = this.charges.reduce((s, r) => s + r.qty * r.unitPrice, 0);
+    const base  = this.visitTypeCharge ? Number(this.visitTypeCharge.unitPrice) : 0;
+    return base + addl;
+  }
+
   save() {
     this.saving.set(true); this.saveError.set("");
-    this.http.post(`${environment.apiUrl}/appointments/${this.data.appointmentId}/notes`, { ...this.notes, additionalCharges: this.charges })
-      .subscribe({ next:()=>{this.saving.set(false);this.snack.open("Notes saved.","×",{duration:2500});this.dialogRef.close(true);}, error:e=>{this.saving.set(false);this.saveError.set(e.error?.message??"Could not save.");} });
+    const saveNotes$ = this.http.post(`${environment.apiUrl}/appointments/${this.data.appointmentId}/notes`, { ...this.notes });
+    const saveCharges$ = this.http.put(`${environment.apiUrl}/appointments/${this.data.appointmentId}/charges`, this.charges);
+    forkJoin([saveNotes$, saveCharges$]).subscribe({
+      next: () => { this.saving.set(false); this.snack.open("Notes saved.", "×", { duration: 2500 }); this.dialogRef.close(true); },
+      error: e => { this.saving.set(false); this.saveError.set(e.error?.message ?? "Could not save."); }
+    });
   }
 }
 

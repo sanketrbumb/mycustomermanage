@@ -9,6 +9,7 @@ import com.yourowncrm.exception.ResourceNotFoundException;
 import com.yourowncrm.model.*;
 import com.yourowncrm.model.enums.InvoiceStatus;
 import com.yourowncrm.repository.*;
+import com.yourowncrm.repository.ApptChargeRepository;
 import com.yourowncrm.service.BillingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ public class BillingServiceImpl implements BillingService {
     private final UserRepository        userRepo;
     private final PaymentRepository     paymentRepo;
     private final ChargeCodeRepository  chargeCodeRepo;
+    private final ApptChargeRepository  apptChargeRepo;
 
     @Autowired
     public BillingServiceImpl(InvoiceRepository invoiceRepo,
@@ -41,7 +43,8 @@ public class BillingServiceImpl implements BillingService {
                                LocationRepository locationRepo,
                                UserRepository userRepo,
                                PaymentRepository paymentRepo,
-                               ChargeCodeRepository chargeCodeRepo) {
+                               ChargeCodeRepository chargeCodeRepo,
+                               ApptChargeRepository apptChargeRepo) {
         this.invoiceRepo    = invoiceRepo;
         this.apptRepo       = apptRepo;
         this.customerRepo   = customerRepo;
@@ -49,6 +52,7 @@ public class BillingServiceImpl implements BillingService {
         this.userRepo       = userRepo;
         this.paymentRepo    = paymentRepo;
         this.chargeCodeRepo = chargeCodeRepo;
+        this.apptChargeRepo = apptChargeRepo;
     }
 
     // ── INVOICE GENERATION ──────────────────────────────────────────────────
@@ -64,28 +68,45 @@ public class BillingServiceImpl implements BillingService {
             return toResponse(appt.getInvoice());
         }
 
-        BigDecimal price = Optional.ofNullable(appt.getChargeAmount())
-            .filter(a -> a.compareTo(BigDecimal.ZERO) > 0)
-            .orElse(appt.getVisitType() != null ? appt.getVisitType().getDefaultPrice() : BigDecimal.ZERO);
+        // ── Build line items from appt_charges (VISIT_TYPE + ADDITIONAL) ──────
+        List<ApptCharge> charges = apptChargeRepo
+            .findByTenantIdAndAppointmentIdOrderBySortOrderAsc(tenantId, appointmentId);
 
-        InvoiceRequest.LineItemRequest line = new InvoiceRequest.LineItemRequest();
-        line.setDescription(appt.getVisitType() != null ? appt.getVisitType().getName() : "Service");
-        line.setChargeCode(appt.getVisitType() != null && appt.getVisitType().getChargeCode() != null
-            ? appt.getVisitType().getChargeCode().getCode() : null);
-        line.setQuantity(BigDecimal.ONE);
-        line.setUnitPrice(price);
+        List<InvoiceRequest.LineItemRequest> lineItems;
+        if (!charges.isEmpty()) {
+            lineItems = charges.stream().map(c -> {
+                InvoiceRequest.LineItemRequest l = new InvoiceRequest.LineItemRequest();
+                l.setDescription(c.getDescription());
+                l.setChargeCode(c.getChargeCode());
+                l.setQuantity(c.getQuantity());
+                l.setUnitPrice(c.getUnitPrice());
+                return l;
+            }).toList();
+        } else {
+            // Fallback for appointments that pre-date the appt_charges table
+            BigDecimal price = Optional.ofNullable(appt.getChargeAmount())
+                .filter(a -> a.compareTo(BigDecimal.ZERO) > 0)
+                .orElse(appt.getVisitType() != null ? appt.getVisitType().getDefaultPrice() : BigDecimal.ZERO);
+            InvoiceRequest.LineItemRequest line = new InvoiceRequest.LineItemRequest();
+            line.setDescription(appt.getVisitType() != null ? appt.getVisitType().getName() : "Service");
+            line.setChargeCode(appt.getVisitType() != null && appt.getVisitType().getChargeCode() != null
+                ? appt.getVisitType().getChargeCode().getCode() : null);
+            line.setQuantity(BigDecimal.ONE);
+            line.setUnitPrice(price);
+            lineItems = List.of(line);
+        }
 
         InvoiceRequest req = new InvoiceRequest();
         req.setCustomerId(appt.getCustomer().getId());
         req.setAppointmentId(appointmentId);
         req.setLocationId(appt.getLocation() != null ? appt.getLocation().getId() : null);
-        req.setLineItems(List.of(line));
+        req.setLineItems(lineItems);
         req.setDiscountType("NONE");
         req.setDiscountValue(BigDecimal.ZERO);
 
         InvoiceResponse created = createInvoice(tenantId, req, userId);
 
-        // Back-link invoice on the appointment
+        // ── Back-link invoice on the appointment ──────────────────────────────
         apptRepo.findById(appointmentId).ifPresent(a ->
             invoiceRepo.findById(created.getId()).ifPresent(inv -> {
                 a.setInvoice(inv);
@@ -93,7 +114,36 @@ public class BillingServiceImpl implements BillingService {
             })
         );
 
-        return created;
+        // ── Auto-apply any outstanding payment for this appointment ───────────
+        // A payment is "outstanding" when it was collected before the invoice existed
+        // (no invoice links yet). Apply up to the invoice balance.
+        paymentRepo.findByTenantIdAndAppointmentId(tenantId, appointmentId).ifPresent(pay -> {
+            if (pay.getInvoiceLinks().isEmpty()) {
+                invoiceRepo.findById(created.getId()).ifPresent(inv -> {
+                    BigDecimal balance  = inv.getNetAmount().subtract(inv.getPaidAmount());
+                    BigDecimal applying = pay.getAmount().min(balance);
+                    if (applying.compareTo(BigDecimal.ZERO) > 0) {
+                        PaymentInvoiceLink link = new PaymentInvoiceLink();
+                        link.setPayment(pay);
+                        link.setInvoice(inv);
+                        link.setAmountApplied(applying);
+                        pay.getInvoiceLinks().add(link);
+
+                        BigDecimal newPaid = inv.getPaidAmount()
+                            .add(applying).setScale(2, RoundingMode.HALF_UP);
+                        inv.setPaidAmount(newPaid);
+                        inv.setStatus(newPaid.compareTo(inv.getNetAmount()) >= 0
+                            ? InvoiceStatus.PAID : InvoiceStatus.PARTIAL);
+                        invoiceRepo.save(inv);
+                        paymentRepo.save(pay);
+                        log.info("Auto-applied outstanding payment " + pay.getPaymentNumber()
+                            + " (" + applying + ") to invoice " + inv.getInvoiceNumber());
+                    }
+                });
+            }
+        });
+
+        return toResponse(invoiceRepo.findById(created.getId()).orElseThrow());
     }
 
     @Override
@@ -135,8 +185,6 @@ public class BillingServiceImpl implements BillingService {
         Invoice invoice = findInvoiceOrThrow(tenantId, invoiceId);
         if (invoice.getStatus() == InvoiceStatus.VOID)
             throw new BusinessException("Cannot edit a voided invoice");
-        if (invoice.getPaidAmount().compareTo(BigDecimal.ZERO) > 0)
-            throw new BusinessException("Cannot edit an invoice that has received payments. Void and reissue.");
 
         invoice.getLineItems().clear();
         invoice.getLineItems().addAll(buildLineItems(req.getLineItems(), invoice));

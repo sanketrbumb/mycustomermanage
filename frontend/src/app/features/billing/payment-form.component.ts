@@ -5,7 +5,7 @@ import { MatSnackBar, MatSnackBarModule } from "@angular/material/snack-bar";
 import { BillingService } from "../../core/services/billing.service";
 import { AdminService } from "../../core/services/admin.service";
 import { Invoice } from "../../shared/models/invoice.model";
-import { Customer } from "../../shared/models/admin.model";
+import { Customer, Resource, Location } from "../../shared/models/admin.model";
 
 interface Payment {
   id: number;
@@ -36,9 +36,9 @@ interface Payment {
       </div>
 
       <!-- Filters -->
-      <div class="filters">
+      <div class="filters" style="flex-wrap:wrap;gap:10px;">
         <input class="form-control" [(ngModel)]="search"
-               placeholder="🔍 Search patient, ref…" style="width:220px;"/>
+               placeholder="🔍 Search patient, invoice, ref…" style="width:220px;"/>
         <select class="form-control" [(ngModel)]="methodFilter" style="width:140px;">
           <option value="">All Methods</option>
           <option value="CARD">Card</option>
@@ -47,9 +47,20 @@ interface Payment {
           <option value="TRANSFER">Online/ACH</option>
           <option value="OTHER">Other</option>
         </select>
+        <select class="form-control" [(ngModel)]="staffFilter" style="width:170px;">
+          <option value="">All Staff</option>
+          @for (r of allResources(); track r.id) {
+            <option [value]="r.id">{{ r.name }}</option>
+          }
+        </select>
+        <select class="form-control" [(ngModel)]="locFilter" style="width:180px;">
+          <option value="">All Locations</option>
+          @for (l of allLocations(); track l.id) {
+            <option [value]="l.id">{{ l.name }}</option>
+          }
+        </select>
         <input type="date" class="form-control" [(ngModel)]="dateFrom" style="width:150px;"/>
         <input type="date" class="form-control" [(ngModel)]="dateTo"   style="width:150px;"/>
-        <button class="btn btn-ghost btn-sm" (click)="clearFilters()">Clear</button>
       </div>
 
       <!-- Payments grouped by date -->
@@ -195,12 +206,20 @@ interface Payment {
               <div class="form-group">
                 <label class="form-label">Total Amount Paid ($) *</label>
                 <input type="number" class="form-control" [(ngModel)]="addAmount"
-                       step="0.01" min="0"/>
+                       step="0.01" min="0" (input)="onAmountInput()"/>
               </div>
-              <div class="form-group">
-                <label class="form-label">Notes</label>
-                <input class="form-control" [(ngModel)]="addNotes"/>
-              </div>
+              @if (addMethod === 'CASH') {
+                <div class="form-group">
+                  <label class="form-label">Change Due (Cash)</label>
+                  <input class="form-control" [value]="changeDueDisplay()"
+                         readonly style="background:var(--stone);font-weight:700;color:var(--jade);"/>
+                </div>
+              }
+            </div>
+            <div class="form-group" style="margin-top:10px;">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" [(ngModel)]="addNotes" rows="2"
+                        placeholder="Optional payment notes…"></textarea>
             </div>
 
             @if (addError()) {
@@ -250,7 +269,8 @@ interface Payment {
                   <tr>
                     <th style="width:36px;"></th>
                     <th>Invoice #</th><th>Patient</th><th>Date</th>
-                    <th>Net</th><th>Paid</th><th>Balance</th><th>Status</th>
+                    <th>Service(s)</th>
+                    <th>Gross</th><th>Paid</th><th>Balance</th><th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -267,7 +287,10 @@ interface Payment {
                       <td><strong>{{ inv.invoiceNumber }}</strong></td>
                       <td>{{ inv.customerFullName }}</td>
                       <td>{{ inv.invoiceDate | date:"mediumDate" }}</td>
-                      <td>{{ inv.netAmount | currency }}</td>
+                      <td style="font-size:12px;color:var(--ink-light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                        {{ invServices(inv) }}
+                      </td>
+                      <td>{{ inv.grossAmount | currency }}</td>
                       <td style="color:var(--success);">{{ inv.paidAmount | currency }}</td>
                       <td [style.color]="inv.balanceDue > 0 ? 'var(--danger)' : 'var(--success)'"
                           style="font-weight:600;">
@@ -281,7 +304,7 @@ interface Payment {
                     </tr>
                   }
                   @if (!pickerFiltered().length) {
-                    <tr><td colspan="8"
+                    <tr><td colspan="9"
                             style="text-align:center;padding:24px;color:var(--ink-light);">
                       No invoices found.
                     </td></tr>
@@ -394,12 +417,16 @@ interface Payment {
   `]
 })
 export class PaymentFormComponent implements OnInit {
-  payments     = signal<Payment[]>([]);
-  allInvoices  = signal<Invoice[]>([]);
-  search       = "";
-  methodFilter = "";
-  dateFrom     = "";
-  dateTo       = "";
+  payments      = signal<Payment[]>([]);
+  allInvoices   = signal<Invoice[]>([]);
+  allResources  = signal<Resource[]>([]);
+  allLocations  = signal<Location[]>([]);
+  search        = "";
+  methodFilter  = "";
+  staffFilter   = "";
+  locFilter     = "";
+  dateFrom      = "";
+  dateTo        = "";
 
   // Add payment modal
   showAdd         = signal(false);
@@ -434,6 +461,8 @@ export class PaymentFormComponent implements OnInit {
   ngOnInit() {
     this.loadPayments();
     this.billSvc.getInvoices().subscribe(inv => this.allInvoices.set(inv));
+    this.adminSvc.getResources().subscribe(r => this.allResources.set(r));
+    this.adminSvc.getLocations().subscribe(l => this.allLocations.set(l));
   }
 
   loadPayments() {
@@ -472,10 +501,25 @@ export class PaymentFormComponent implements OnInit {
 
   clearFilters() {
     this.search = ""; this.methodFilter = "";
+    this.staffFilter = ""; this.locFilter = "";
     this.dateFrom = ""; this.dateTo = "";
   }
 
   methodClass(m: string): string { return `method-pill pill-${m}`; }
+
+  invServices(inv: Invoice): string {
+    if (!inv.lineItems?.length) return "—";
+    return inv.lineItems.map(l => l.description).filter(Boolean).slice(0, 2).join(", ");
+  }
+
+  changeDueDisplay(): string {
+    const paid  = this.addAmount || 0;
+    const total = this.selectedBalance();
+    const change = Math.max(0, paid - total);
+    return change > 0 ? change.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "";
+  }
+
+  onAmountInput() { /* triggers change-due recompute via binding */ }
 
   statusClass(status: string): string {
     const m: Record<string,string> = {

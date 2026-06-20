@@ -15,10 +15,12 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.logging.Logger;
 
@@ -35,6 +37,7 @@ public class AppointmentServiceImpl implements AppointmentService {
     private final LocationRepository         locationRepo;
     private final CustomerRepository         customerRepo;
     private final ResourceScheduleRepository scheduleRepo;
+    private final ApptChargeRepository       apptChargeRepo;
 
     // Lazy to break the circular dependency: AppointmentServiceImpl → BillingService
     // → AppointmentRepository → (resolved by Spring proxy at first use)
@@ -50,7 +53,8 @@ public class AppointmentServiceImpl implements AppointmentService {
                                    VisitTypeRepository visitTypeRepo,
                                    LocationRepository locationRepo,
                                    CustomerRepository customerRepo,
-                                   ResourceScheduleRepository scheduleRepo) {
+                                   ResourceScheduleRepository scheduleRepo,
+                                   ApptChargeRepository apptChargeRepo) {
         this.appointmentRepo = appointmentRepo;
         this.resourceRepo    = resourceRepo;
         this.userRepo        = userRepo;
@@ -59,6 +63,7 @@ public class AppointmentServiceImpl implements AppointmentService {
         this.locationRepo    = locationRepo;
         this.customerRepo    = customerRepo;
         this.scheduleRepo    = scheduleRepo;
+        this.apptChargeRepo  = apptChargeRepo;
     }
 
     // ── READ ──────────────────────────────────────────────────────────────
@@ -85,6 +90,7 @@ public class AppointmentServiceImpl implements AppointmentService {
         Appointment appt = buildAppointment(tenantId, req, new Appointment());
         userRepo.findById(userId).ifPresent(appt::setCreatedBy);
         appt = appointmentRepo.save(appt);
+        syncVisitTypeCharge(appt);
         log.info("Appointment " + appt.getId() + " created for tenant " + tenantId);
         return toResponse(appt);
     }
@@ -103,6 +109,7 @@ public class AppointmentServiceImpl implements AppointmentService {
         buildAppointment(tenantId, req, existing);
         existing.setUpdatedBy(userId);
         existing = appointmentRepo.save(existing);
+        syncVisitTypeCharge(existing);
 
         VisitStatus newStatus = existing.getVisitStatus();
 
@@ -330,6 +337,31 @@ public class AppointmentServiceImpl implements AppointmentService {
         a.setChargeAmount(req.getChargeAmount());
         a.setNotes(req.getNotes());
         return a;
+    }
+
+    /**
+     * Keeps the VISIT_TYPE row in appt_charges in sync with the appointment's
+     * visit type and charge amount.  Called after every create/update save.
+     */
+    private void syncVisitTypeCharge(Appointment appt) {
+        apptChargeRepo.deleteByAppointmentIdAndSource(appt.getId(), "VISIT_TYPE");
+        VisitType vt = appt.getVisitType();
+        if (vt == null) return;
+
+        BigDecimal price = Optional.ofNullable(appt.getChargeAmount())
+            .filter(a -> a.compareTo(BigDecimal.ZERO) > 0)
+            .orElse(vt.getDefaultPrice() != null ? vt.getDefaultPrice() : BigDecimal.ZERO);
+
+        ApptCharge charge = new ApptCharge();
+        charge.setTenantId(appt.getTenantId());
+        charge.setAppointmentId(appt.getId());
+        charge.setSource("VISIT_TYPE");
+        charge.setDescription(vt.getName());
+        charge.setChargeCode(vt.getChargeCode() != null ? vt.getChargeCode().getCode() : null);
+        charge.setQuantity(BigDecimal.ONE);
+        charge.setUnitPrice(price);
+        charge.setSortOrder((short) 0);
+        apptChargeRepo.save(charge);
     }
 
     private Appointment findOrThrow(UUID tenantId, Long id) {

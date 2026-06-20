@@ -1,12 +1,7 @@
 package com.yourowncrm.model;
 
 import jakarta.persistence.*;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -30,10 +25,6 @@ public class AppointmentNotes {
     @Column(columnDefinition = "TEXT") private String treatment;
     @Column(name = "products_used", columnDefinition = "TEXT") private String products;
     @Column(name = "therapist_initials", length = 10) private String therapistInitials;
-
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "additional_charges", columnDefinition = "jsonb")
-    private List<Map<String,Object>> additionalCharges;
 
     @Column(name = "created_by") private Long createdBy;
     @Column(name = "updated_by") private Long updatedBy;
@@ -64,8 +55,6 @@ public class AppointmentNotes {
     public void setProducts(String v) { this.products = v; }
     public String getTherapistInitials() { return therapistInitials; }
     public void setTherapistInitials(String v) { this.therapistInitials = v; }
-    public List<Map<String,Object>> getAdditionalCharges() { return additionalCharges; }
-    public void setAdditionalCharges(List<Map<String,Object>> v) { this.additionalCharges = v; }
     public Long getCreatedBy() { return createdBy; }
     public void setCreatedBy(Long v) { this.createdBy = v; }
     public Long getUpdatedBy() { return updatedBy; }
