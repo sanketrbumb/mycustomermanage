@@ -15,4 +15,5 @@ public class PaymentResponse {
     public String notes;
     public List<String> invoiceNumbers;
     public String resourceName;
+    public String postedBy;
 }

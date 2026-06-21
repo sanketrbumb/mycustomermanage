@@ -5,7 +5,7 @@ import { MatSnackBar, MatSnackBarModule } from "@angular/material/snack-bar";
 import { BillingService } from "../../core/services/billing.service";
 import { AdminService } from "../../core/services/admin.service";
 import { Invoice } from "../../shared/models/invoice.model";
-import { Customer, Resource, Location } from "../../shared/models/admin.model";
+import { Customer, Resource, Location, User } from "../../shared/models/admin.model";
 
 interface Payment {
   id: number;
@@ -19,6 +19,7 @@ interface Payment {
   invoiceNumbers: string[];
   notes?: string;
   resourceName?: string;
+  postedBy?: string;
 }
 
 @Component({
@@ -50,7 +51,7 @@ interface Payment {
         </select>
         <div style="position:relative;">
           <input class="form-control" [(ngModel)]="staffSearch"
-                 placeholder="🔍 Staff or resource…" style="width:180px;"
+                 placeholder="🔍 Posted by…" style="width:180px;"
                  (input)="onStaffSearch()"
                  (focus)="showStaffDrop.set(true)"
                  (blur)="onStaffBlur()"/>
@@ -417,6 +418,7 @@ export class PaymentFormComponent implements OnInit {
   allInvoices   = signal<Invoice[]>([]);
   allResources  = signal<Resource[]>([]);
   allLocations  = signal<Location[]>([]);
+  allUsers      = signal<User[]>([]);
   search        = "";
   methodFilter  = "";
   staffSearch   = "";
@@ -460,6 +462,7 @@ export class PaymentFormComponent implements OnInit {
     this.billSvc.getInvoices().subscribe(inv => this.allInvoices.set(inv));
     this.adminSvc.getResources().subscribe(r => this.allResources.set(r));
     this.adminSvc.getLocations().subscribe(l => this.allLocations.set(l));
+    this.adminSvc.getUsers().subscribe(u => this.allUsers.set(u));
   }
 
   loadPayments() {
@@ -479,7 +482,7 @@ export class PaymentFormComponent implements OnInit {
       const matchF = !this.dateFrom || p.paymentDate >= this.dateFrom;
       const matchT = !this.dateTo   || p.paymentDate <= this.dateTo;
       const staffQ = this.staffSearch.toLowerCase();
-      const matchS = !staffQ || (p.resourceName ?? "").toLowerCase().includes(staffQ);
+      const matchS = !staffQ || (p.postedBy ?? "").toLowerCase().includes(staffQ);
       return matchQ && matchM && matchF && matchT && matchS;
     }).sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
   }
@@ -493,9 +496,9 @@ export class PaymentFormComponent implements OnInit {
   staffSuggestions(): string[] {
     const q = this.staffSearch.toLowerCase();
     if (!q) return [];
-    return this.allResources()
-      .filter(r => r.name.toLowerCase().includes(q))
-      .map(r => r.name)
+    return this.allUsers()
+      .filter(u => u.active && (`${u.firstName} ${u.lastName}`).toLowerCase().includes(q))
+      .map(u => `${u.firstName} ${u.lastName}`)
       .slice(0, 8);
   }
 

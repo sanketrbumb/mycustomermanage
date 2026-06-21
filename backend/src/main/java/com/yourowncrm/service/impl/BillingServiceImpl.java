@@ -369,6 +369,9 @@ public class BillingServiceImpl implements BillingService {
             if (p.getAppointment() != null && p.getAppointment().getResource() != null) {
                 r.resourceName = p.getAppointment().getResource().getName();
             }
+            if (p.getCreatedBy() != null) {
+                r.postedBy = p.getCreatedBy().getFirstName() + " " + p.getCreatedBy().getLastName();
+            }
             return r;
         }).toList();
     }
