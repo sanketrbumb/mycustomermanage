@@ -6,6 +6,7 @@ import com.yourowncrm.exception.BusinessException;
 import com.yourowncrm.exception.ResourceNotFoundException;
 import com.yourowncrm.model.User;
 import com.yourowncrm.model.enums.UserRole;
+import com.yourowncrm.repository.LocationRepository;
 import com.yourowncrm.repository.TenantRepository;
 import com.yourowncrm.repository.UserRepository;
 import com.yourowncrm.security.JwtTokenProvider;
@@ -29,18 +30,21 @@ public class UserServiceImpl implements UserService {
     private static final Logger log = Logger.getLogger(UserServiceImpl.class.getName());
     private static final int MAX_FAIL = 5;
 
-    private final UserRepository   userRepo;
-    private final TenantRepository tenantRepo;
-    private final PasswordEncoder  encoder;
-    private final JwtTokenProvider jwtProvider;
+    private final UserRepository     userRepo;
+    private final TenantRepository   tenantRepo;
+    private final LocationRepository locationRepo;
+    private final PasswordEncoder    encoder;
+    private final JwtTokenProvider   jwtProvider;
 
     @Autowired
     public UserServiceImpl(UserRepository userRepo, TenantRepository tenantRepo,
+                           LocationRepository locationRepo,
                            PasswordEncoder encoder, JwtTokenProvider jwtProvider) {
-        this.userRepo    = userRepo;
-        this.tenantRepo  = tenantRepo;
-        this.encoder     = encoder;
-        this.jwtProvider = jwtProvider;
+        this.userRepo     = userRepo;
+        this.tenantRepo   = tenantRepo;
+        this.locationRepo = locationRepo;
+        this.encoder      = encoder;
+        this.jwtProvider  = jwtProvider;
     }
 
     @Override
@@ -127,13 +131,18 @@ public class UserServiceImpl implements UserService {
         u.setTenantId(tenantId);
         u.setUsername(username);
         String emailVal = (String) req.get("email");
-        u.setEmail(emailVal != null ? emailVal : "");
+        u.setEmail(emailVal != null && !emailVal.isBlank() ? emailVal : null);
         u.setPasswordHash(encoder.encode((String) req.get("password")));
         u.setFirstName((String) req.get("firstName"));
         u.setLastName((String) req.get("lastName"));
         u.setRole(UserRole.valueOf((String) req.getOrDefault("role", "STAFF")));
         u.setPhone((String) req.get("phone"));
-        u.setActive(true);
+        u.setActive(req.containsKey("active") ? (Boolean) req.get("active") : true);
+        if (req.containsKey("canBookAppts")) u.setCanBookAppts((Boolean) req.get("canBookAppts"));
+        if (req.containsKey("locationId") && req.get("locationId") != null) {
+            Long locId = ((Number) req.get("locationId")).longValue();
+            locationRepo.findById(locId).ifPresent(u::setLocation);
+        }
         if (req.containsKey("_createdBy")) u.setCreatedBy((Long) req.get("_createdBy"));
         return userRepo.save(u);
     }
@@ -146,7 +155,15 @@ public class UserServiceImpl implements UserService {
         if (req.containsKey("lastName"))  u.setLastName((String) req.get("lastName"));
         if (req.containsKey("email")) {
             String emailVal = (String) req.get("email");
-            u.setEmail(emailVal != null ? emailVal : "");
+            u.setEmail(emailVal != null && !emailVal.isBlank() ? emailVal : null);
+        }
+        if (req.containsKey("locationId")) {
+            if (req.get("locationId") == null) {
+                u.setLocation(null);
+            } else {
+                Long locId = ((Number) req.get("locationId")).longValue();
+                locationRepo.findById(locId).ifPresent(u::setLocation);
+            }
         }
         if (req.containsKey("phone"))     u.setPhone((String) req.get("phone"));
         if (req.containsKey("role"))      u.setRole(UserRole.valueOf((String) req.get("role")));

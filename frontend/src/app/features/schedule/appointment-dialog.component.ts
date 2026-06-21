@@ -451,6 +451,13 @@ export class AppointmentDialogComponent implements OnInit {
       notes: a.notes ?? "",
     });
 
+    // Load any payment already collected for this appointment
+    this.http.get<any>(`${environment.apiUrl}/appointments/${a.id}/payment`)
+      .subscribe({
+        next: p => { if (p?.amount) this.paidAmount.set(Number(p.amount)); },
+        error: () => { /* 204 No Content = no payment, leave paidAmount null */ }
+      });
+
     if (a.customerFullName) {
       this.customerSearch.setValue(a.customerFullName, { emitEvent: false });
       this.selectedCustomer.set({ id: a.customerId } as any);

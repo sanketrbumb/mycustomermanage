@@ -6,6 +6,7 @@ import com.yourowncrm.model.AppointmentNotes;
 import com.yourowncrm.repository.ApptChargeRepository;
 import com.yourowncrm.repository.AppointmentNotesRepository;
 import com.yourowncrm.repository.AppointmentRepository;
+import com.yourowncrm.repository.PaymentRepository;
 import com.yourowncrm.dto.response.AppointmentResponse;
 import com.yourowncrm.dto.response.AvailabilityConflict;
 import com.yourowncrm.security.JwtTokenProvider;
@@ -33,18 +34,21 @@ public class AppointmentController {
     private final AppointmentNotesRepository  notesRepo;
     private final AppointmentRepository       apptRepo;
     private final ApptChargeRepository        chargeRepo;
+    private final PaymentRepository           paymentRepo;
 
     @Autowired
     public AppointmentController(AppointmentService service,
                                   JwtTokenProvider jwtProvider,
                                   AppointmentNotesRepository notesRepo,
                                   AppointmentRepository apptRepo,
-                                  ApptChargeRepository chargeRepo) {
-        this.service     = service;
-        this.jwtProvider = jwtProvider;
-        this.notesRepo   = notesRepo;
-        this.apptRepo    = apptRepo;
-        this.chargeRepo  = chargeRepo;
+                                  ApptChargeRepository chargeRepo,
+                                  PaymentRepository paymentRepo) {
+        this.service      = service;
+        this.jwtProvider  = jwtProvider;
+        this.notesRepo    = notesRepo;
+        this.apptRepo     = apptRepo;
+        this.chargeRepo   = chargeRepo;
+        this.paymentRepo  = paymentRepo;
     }
 
     @GetMapping("/daily")
@@ -181,6 +185,27 @@ public class AppointmentController {
             saved.add(chargeRepo.save(c));
         }
         return chargeRepo.findByTenantIdAndAppointmentIdOrderBySortOrderAsc(tenantId, id);
+    }
+
+    // ── Payment collected at check-in ─────────────────────────────────────────
+
+    /** Returns the payment linked to this appointment, or 204 No Content if none. */
+    @GetMapping("/{id}/payment")
+    public ResponseEntity<Map<String, Object>> getPaymentForAppointment(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long id) {
+        UUID tenantId = jwtProvider.getTenantId(token.substring(7));
+        return paymentRepo.findByTenantIdAndAppointmentId(tenantId, id)
+            .map(p -> {
+                Map<String, Object> r = new java.util.HashMap<>();
+                r.put("id", p.getId());
+                r.put("amount", p.getAmount());
+                r.put("method", p.getMethod() != null ? p.getMethod().name() : null);
+                r.put("paymentDate", p.getPaymentDate());
+                r.put("paymentNumber", p.getPaymentNumber());
+                return ResponseEntity.ok(r);
+            })
+            .orElse(ResponseEntity.noContent().<Map<String, Object>>build());
     }
 
     // ── All visits by customer ────────────────────────────────────────────────

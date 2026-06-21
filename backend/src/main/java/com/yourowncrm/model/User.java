@@ -11,7 +11,7 @@ public class User extends BaseEntity {
     @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id;
     @Column(name="tenant_id", nullable=false) private UUID tenantId;
     @Column(nullable=false, length=60) private String username;
-    @Column(nullable=false, length=120) private String email;
+    @Column(nullable=true, length=120) private String email;
     @JsonIgnore
     @Column(name="password_hash", nullable=false, length=255) private String passwordHash;
     @Column(name="first_name", nullable=false, length=80) private String firstName;
