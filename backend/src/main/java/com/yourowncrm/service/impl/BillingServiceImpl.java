@@ -366,6 +366,9 @@ public class BillingServiceImpl implements BillingService {
             r.invoiceNumbers   = p.getInvoiceLinks().stream()
                 .map(l -> l.getInvoice().getInvoiceNumber())
                 .toList();
+            if (p.getAppointment() != null && p.getAppointment().getResource() != null) {
+                r.resourceName = p.getAppointment().getResource().getName();
+            }
             return r;
         }).toList();
     }

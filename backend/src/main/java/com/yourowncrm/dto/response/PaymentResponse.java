@@ -14,4 +14,5 @@ public class PaymentResponse {
     public LocalDate paymentDate;
     public String notes;
     public List<String> invoiceNumbers;
+    public String resourceName;
 }

@@ -18,6 +18,7 @@ interface Payment {
   paymentDate: string;
   invoiceNumbers: string[];
   notes?: string;
+  resourceName?: string;
 }
 
 @Component({
@@ -47,12 +48,20 @@ interface Payment {
           <option value="TRANSFER">Online/ACH</option>
           <option value="OTHER">Other</option>
         </select>
-        <select class="form-control" [(ngModel)]="staffFilter" style="width:170px;">
-          <option value="">All Staff</option>
-          @for (r of allResources(); track r.id) {
-            <option [value]="r.id">{{ r.name }}</option>
+        <div style="position:relative;">
+          <input class="form-control" [(ngModel)]="staffSearch"
+                 placeholder="🔍 Staff or resource…" style="width:180px;"
+                 (input)="onStaffSearch()"
+                 (focus)="showStaffDrop.set(true)"
+                 (blur)="onStaffBlur()"/>
+          @if (showStaffDrop() && staffSuggestions().length) {
+            <div class="ac-dropdown">
+              @for (name of staffSuggestions(); track name) {
+                <div class="ac-item" (mousedown)="selectStaff(name)">{{ name }}</div>
+              }
+            </div>
           }
-        </select>
+        </div>
         <select class="form-control" [(ngModel)]="locFilter" style="width:180px;">
           <option value="">All Locations</option>
           @for (l of allLocations(); track l.id) {
@@ -63,60 +72,48 @@ interface Payment {
         <input type="date" class="form-control" [(ngModel)]="dateTo"   style="width:150px;"/>
       </div>
 
-      <!-- Payments grouped by date -->
-      @for (group of groupedPayments(); track group.date) {
-        <div class="day-group-label">
-          {{ group.date | date:"fullDate" }}
-          <span style="margin-left:12px;font-weight:400;">
-            {{ group.payments.length }} payment{{ group.payments.length > 1 ? "s" : "" }}
-            · {{ group.total | currency }}
-          </span>
-        </div>
-        <div class="card">
-          <table class="crm-table">
-            <thead>
+      <!-- Payments flat table -->
+      <div class="card">
+        <table class="crm-table">
+          <thead>
+            <tr>
+              <th>Payment #</th><th>Customer</th><th>Invoice(s)</th>
+              <th>Date</th><th>Method</th><th>Amount</th><th>Reference</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (p of filtered(); track p.id) {
               <tr>
-                <th>Payment #</th><th>Customer</th><th>Invoice(s)</th>
-                <th>Method</th><th>Amount</th><th>Reference</th><th>Actions</th>
+                <td><code style="font-size:11px;background:var(--stone);padding:2px 6px;border-radius:4px;">{{ p.paymentNumber }}</code></td>
+                <td><strong>{{ p.customerFullName }}</strong></td>
+                <td style="font-size:12px;color:var(--ink-light);">
+                  {{ p.invoiceNumbers.join(", ") || "—" }}
+                </td>
+                <td style="font-size:12px;color:var(--ink-light);">{{ p.paymentDate | date:"mediumDate" }}</td>
+                <td>
+                  <span class="method-pill" [ngClass]="methodClass(p.method)">
+                    {{ p.method }}
+                  </span>
+                </td>
+                <td style="font-weight:700;">{{ p.amount | currency }}</td>
+                <td style="font-size:12px;color:var(--ink-light);">
+                  {{ p.reference || "—" }}
+                </td>
+                <td>
+                  <button class="btn btn-outline btn-sm"
+                          (click)="viewReceipt(p)">Receipt</button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              @for (p of group.payments; track p.id) {
-                <tr>
-                  <td><code style="font-size:11px;background:var(--stone);padding:2px 6px;border-radius:4px;">{{ p.paymentNumber }}</code></td>
-                  <td><strong>{{ p.customerFullName }}</strong></td>
-                  <td style="font-size:12px;color:var(--ink-light);">
-                    {{ p.invoiceNumbers.join(", ") || "—" }}
-                  </td>
-                  <td>
-                    <span class="method-pill" [ngClass]="methodClass(p.method)">
-                      {{ p.method }}
-                    </span>
-                  </td>
-                  <td style="font-weight:700;">{{ p.amount | currency }}</td>
-                  <td style="font-size:12px;color:var(--ink-light);">
-                    {{ p.reference || "—" }}
-                  </td>
-                  <td>
-                    <button class="btn btn-outline btn-sm"
-                            (click)="viewReceipt(p)">Receipt</button>
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-      }
-
-      @if (!payments().length) {
-        <div class="card" style="padding:40px;text-align:center;color:var(--ink-light);">
-          <div style="font-size:32px;margin-bottom:12px;">💳</div>
-          <div style="font-family:var(--font-display);font-size:18px;color:var(--jade);margin-bottom:6px;">
-            No payments yet
-          </div>
-          <div>Post a payment using the button above.</div>
-        </div>
-      }
+            }
+            @if (!filtered().length) {
+              <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-light);">
+                @if (payments().length) { No payments match the current filters. }
+                @else { No payments yet. Post a payment using the button above. }
+              </td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- ═══ ADD PAYMENT MODAL ═══ -->
@@ -399,7 +396,6 @@ interface Payment {
     }
   `,
   styles: [`
-    .day-group-label { background:var(--jade-mist); padding:8px 14px; font-size:12px; font-weight:700; color:var(--jade); border-radius:var(--radius); margin:12px 0 4px; }
     .method-pill { display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600; }
     .pill-CARD     { background:#ddeefb;color:#1a5c8a; }
     .pill-CASH     { background:#d4f0e0;color:#1a7a45; }
@@ -423,10 +419,11 @@ export class PaymentFormComponent implements OnInit {
   allLocations  = signal<Location[]>([]);
   search        = "";
   methodFilter  = "";
-  staffFilter   = "";
+  staffSearch   = "";
   locFilter     = "";
   dateFrom      = "";
   dateTo        = "";
+  showStaffDrop = signal(false);
 
   // Add payment modal
   showAdd         = signal(false);
@@ -481,29 +478,30 @@ export class PaymentFormComponent implements OnInit {
       const matchM = !this.methodFilter || p.method === this.methodFilter;
       const matchF = !this.dateFrom || p.paymentDate >= this.dateFrom;
       const matchT = !this.dateTo   || p.paymentDate <= this.dateTo;
-      return matchQ && matchM && matchF && matchT;
-    });
-  }
-
-  groupedPayments(): { date: string; payments: Payment[]; total: number }[] {
-    const groups: Record<string, Payment[]> = {};
-    this.filtered().forEach(p => {
-      (groups[p.paymentDate] = groups[p.paymentDate] || []).push(p);
-    });
-    return Object.keys(groups)
-      .sort((a, b) => b.localeCompare(a))
-      .map(date => ({
-        date,
-        payments: groups[date],
-        total: groups[date].reduce((s, p) => s + p.amount, 0)
-      }));
+      const staffQ = this.staffSearch.toLowerCase();
+      const matchS = !staffQ || (p.resourceName ?? "").toLowerCase().includes(staffQ);
+      return matchQ && matchM && matchF && matchT && matchS;
+    }).sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
   }
 
   clearFilters() {
     this.search = ""; this.methodFilter = "";
-    this.staffFilter = ""; this.locFilter = "";
+    this.staffSearch = ""; this.locFilter = "";
     this.dateFrom = ""; this.dateTo = "";
   }
+
+  staffSuggestions(): string[] {
+    const q = this.staffSearch.toLowerCase();
+    if (!q) return [];
+    return this.allResources()
+      .filter(r => r.name.toLowerCase().includes(q))
+      .map(r => r.name)
+      .slice(0, 8);
+  }
+
+  onStaffSearch() { this.showStaffDrop.set(true); }
+  onStaffBlur()   { setTimeout(() => this.showStaffDrop.set(false), 200); }
+  selectStaff(name: string) { this.staffSearch = name; this.showStaffDrop.set(false); }
 
   methodClass(m: string): string { return `method-pill pill-${m}`; }
 

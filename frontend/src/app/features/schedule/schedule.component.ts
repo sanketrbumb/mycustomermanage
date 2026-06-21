@@ -477,6 +477,10 @@ export class ScheduleComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit() {
+    // Restore previously selected date/month from persistent state service
+    const saved = this.state.currentDate;
+    this.currentDateSig.set(new Date(saved));
+    this.miniCalMonth.set(new Date(saved.getFullYear(), saved.getMonth(), 1));
     document.addEventListener("click", this.closeCtxBound);
     this.loadLookups();
     // Always load schedule immediately on init — don't wait for lookups
