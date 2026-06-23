@@ -5,6 +5,7 @@ import com.stripe.exception.SignatureVerificationException;
 import com.stripe.exception.StripeException;
 import com.stripe.model.*;
 import com.stripe.model.checkout.Session;
+import com.stripe.net.RequestOptions;
 import com.stripe.net.Webhook;
 import com.stripe.param.*;
 import com.stripe.param.checkout.SessionCreateParams;
@@ -25,23 +26,17 @@ import java.util.Map;
  * Stripe adapter.
  *
  * Setup:
- *   1. Create account at stripe.com
- *   2. Get your API keys from Dashboard → Developers → API Keys
- *   3. Set in .env:
+ *   1. stripe.com → Developers → API Keys
+ *   2. Set in .env:
  *        GATEWAY_PROVIDER=stripe
  *        STRIPE_SECRET_KEY=sk_live_...
  *        STRIPE_WEBHOOK_SECRET=whsec_...
- *   4. Add to pom.xml:
+ *   3. Add to pom.xml:
  *        <dependency>
  *          <groupId>com.stripe</groupId>
  *          <artifactId>stripe-java</artifactId>
  *          <version>25.1.0</version>
  *        </dependency>
- *   5. In the Stripe dashboard, create products/prices for each plan tier
- *      and set the price IDs in your config (e.g. STRIPE_PRICE_STARTER etc.)
- *   6. Set up webhooks at Dashboard → Developers → Webhooks → Add endpoint:
- *        URL: https://yourdomain.com/api/billing/webhook
- *        Events: customer.subscription.*, invoice.payment_*
  */
 @Component
 @ConditionalOnProperty(name = "app.payment.provider", havingValue = "stripe")
@@ -79,13 +74,11 @@ public class StripeAdapter implements PaymentGatewayService {
                 .putAllMetadata(req.metadata() != null ? req.metadata() : Map.of());
 
             if (req.amount() == null) {
-                // Subscription
                 builder.addLineItem(SessionCreateParams.LineItem.builder()
                     .setPrice(req.planId())
                     .setQuantity(1L)
                     .build());
             } else {
-                // One-time payment
                 builder.addLineItem(SessionCreateParams.LineItem.builder()
                     .setPriceData(SessionCreateParams.LineItem.PriceData.builder()
                         .setCurrency(req.currency())
@@ -115,11 +108,15 @@ public class StripeAdapter implements PaymentGatewayService {
                 .setPaymentMethod(req.paymentMethodId())
                 .setConfirm(true)
                 .setDescription(req.description())
-                .setIdempotencyKey(req.idempotencyKey())
                 .setOffSession(true)
                 .build();
 
-            PaymentIntent pi = PaymentIntent.create(params);
+            // Idempotency key goes in RequestOptions in stripe-java 25.x, not on the params builder
+            RequestOptions opts = RequestOptions.builder()
+                .setIdempotencyKey(req.idempotencyKey())
+                .build();
+
+            PaymentIntent pi = PaymentIntent.create(params, opts);
 
             return new ChargeResult(
                 pi.getId(),
@@ -241,7 +238,6 @@ public class StripeAdapter implements PaymentGatewayService {
     @Override
     public String ensureCustomer(String tenantId, String email, String name) {
         try {
-            // Search for existing customer by metadata
             CustomerSearchParams search = CustomerSearchParams.builder()
                 .setQuery("metadata['tenantId']:'" + tenantId + "'")
                 .build();
@@ -249,7 +245,6 @@ public class StripeAdapter implements PaymentGatewayService {
             if (!result.getData().isEmpty()) {
                 return result.getData().get(0).getId();
             }
-            // Create new
             Map<String, String> meta = new HashMap<>();
             meta.put("tenantId", tenantId);
             Customer customer = Customer.create(CustomerCreateParams.builder()
@@ -269,30 +264,23 @@ public class StripeAdapter implements PaymentGatewayService {
             throw new BusinessException("Invalid Stripe webhook signature");
         }
 
-        // Map Stripe event type → normalised WebhookEventType
         WebhookEventType type = switch (event.getType()) {
-            case "customer.subscription.created"     -> WebhookEventType.SUBSCRIPTION_CREATED;
-            case "customer.subscription.updated"     -> WebhookEventType.SUBSCRIPTION_UPDATED;
-            case "customer.subscription.deleted"     -> WebhookEventType.SUBSCRIPTION_CANCELED;
-            case "invoice.payment_succeeded"         -> WebhookEventType.SUBSCRIPTION_PAYMENT_SUCCEEDED;
-            case "invoice.payment_failed"            -> WebhookEventType.SUBSCRIPTION_PAYMENT_FAILED;
-            case "payment_intent.succeeded"          -> WebhookEventType.CHARGE_SUCCEEDED;
-            case "payment_intent.payment_failed"     -> WebhookEventType.CHARGE_FAILED;
-            case "charge.refunded"                   -> WebhookEventType.REFUND_SUCCEEDED;
-            default                                  -> WebhookEventType.UNKNOWN;
+            case "customer.subscription.created"    -> WebhookEventType.SUBSCRIPTION_CREATED;
+            case "customer.subscription.updated"    -> WebhookEventType.SUBSCRIPTION_UPDATED;
+            case "customer.subscription.deleted"    -> WebhookEventType.SUBSCRIPTION_CANCELED;
+            case "invoice.payment_succeeded"        -> WebhookEventType.SUBSCRIPTION_PAYMENT_SUCCEEDED;
+            case "invoice.payment_failed"           -> WebhookEventType.SUBSCRIPTION_PAYMENT_FAILED;
+            case "payment_intent.succeeded"         -> WebhookEventType.CHARGE_SUCCEEDED;
+            case "payment_intent.payment_failed"    -> WebhookEventType.CHARGE_FAILED;
+            case "charge.refunded"                  -> WebhookEventType.REFUND_SUCCEEDED;
+            default                                 -> WebhookEventType.UNKNOWN;
         };
 
-        // Extract common fields
         StripeObject obj = event.getDataObjectDeserializer().getObject().orElse(null);
         String customerId = null, subscriptionId = null, chargeId = null;
-        if (obj instanceof Subscription s) {
-            customerId = s.getCustomer(); subscriptionId = s.getId();
-        } else if (obj instanceof Invoice i) {
-            customerId = i.getCustomer(); subscriptionId = i.getSubscription();
-            chargeId = i.getCharge();
-        } else if (obj instanceof PaymentIntent pi) {
-            customerId = pi.getCustomer(); chargeId = pi.getId();
-        }
+        if (obj instanceof Subscription s)   { customerId = s.getCustomer(); subscriptionId = s.getId(); }
+        else if (obj instanceof Invoice i)   { customerId = i.getCustomer(); subscriptionId = i.getSubscription(); chargeId = i.getCharge(); }
+        else if (obj instanceof PaymentIntent pi) { customerId = pi.getCustomer(); chargeId = pi.getId(); }
 
         return new WebhookEvent(type.name(), event.getId(),
             customerId, subscriptionId, chargeId, Map.of());
