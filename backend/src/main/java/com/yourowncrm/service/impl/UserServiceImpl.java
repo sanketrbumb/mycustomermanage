@@ -135,7 +135,7 @@ public class UserServiceImpl implements UserService {
         u.setPasswordHash(encoder.encode((String) req.get("password")));
         u.setFirstName((String) req.get("firstName"));
         u.setLastName((String) req.get("lastName"));
-        u.setRole(UserRole.valueOf((String) req.getOrDefault("role", "STAFF")));
+        assignRole(u, (String) req.getOrDefault("role", "STAFF"));
         u.setPhone((String) req.get("phone"));
         u.setActive(req.containsKey("active") ? (Boolean) req.get("active") : true);
         if (req.containsKey("canBookAppts")) u.setCanBookAppts((Boolean) req.get("canBookAppts"));
@@ -166,7 +166,7 @@ public class UserServiceImpl implements UserService {
             }
         }
         if (req.containsKey("phone"))     u.setPhone((String) req.get("phone"));
-        if (req.containsKey("role"))      u.setRole(UserRole.valueOf((String) req.get("role")));
+        if (req.containsKey("role"))      assignRole(u, (String) req.get("role"));
         if (req.containsKey("locked"))       u.setLocked((Boolean) req.get("locked"));
         if (req.containsKey("active"))       u.setActive((Boolean) req.get("active"));
         if (req.containsKey("canBookAppts")) u.setCanBookAppts((Boolean) req.get("canBookAppts"));
@@ -183,5 +183,23 @@ public class UserServiceImpl implements UserService {
         User u = getById(tenantId, id);
         u.setActive(false);
         userRepo.save(u);
+    }
+
+    private void assignRole(User u, String roleStr) {
+        if (roleStr == null || roleStr.isBlank()) {
+            u.setRole(UserRole.STAFF);
+            u.setRoleName("STAFF");
+            return;
+        }
+        String normalized = roleStr.trim().toUpperCase().replace(" ", "_");
+        try {
+            UserRole ur = UserRole.valueOf(normalized);
+            u.setRole(ur);
+            u.setRoleName(roleStr);
+        } catch (IllegalArgumentException e) {
+            // It is a custom role (e.g., "Auditor", "Summer Intern")
+            u.setRole(UserRole.STAFF); // Fallback Spring Security role
+            u.setRoleName(roleStr);
+        }
     }
 }

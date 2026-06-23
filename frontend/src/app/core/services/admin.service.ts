@@ -15,6 +15,7 @@ export class AdminService {
   createUser(u: any):                  Observable<User>     { return this.http.post<User>(`${this.base}/users`, u); }
   updateUser(id: number, u: any):      Observable<User>     { return this.http.put<User>(`${this.base}/users/${id}`, u); }
   deleteUser(id: number):              Observable<void>     { return this.http.delete<void>(`${this.base}/users/${id}`); }
+  getRoles():                          Observable<any[]>    { return this.http.get<any[]>(`${this.base}/roles`); }
 
   // ── Resources ─────────────────────────────────────────────
   getResources():                      Observable<Resource[]>  { return this.http.get<Resource[]>(`${this.base}/resources`); }

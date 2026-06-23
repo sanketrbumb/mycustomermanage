@@ -243,8 +243,14 @@ export class SubscriptionComponent implements OnInit {
 
   statusLabel(): string {
     const s = this.status()?.status;
-    return { ACTIVE: "Active", TRIALING: "Free Trial", PAST_DUE: "Payment Due",
-             CANCELED: "Canceled", NONE: "No Plan" }[s ?? "NONE"] ?? s ?? "Unknown";
+    const labels: Record<string, string> = {
+      ACTIVE: "Active",
+      TRIALING: "Free Trial",
+      PAST_DUE: "Payment Due",
+      CANCELED: "Canceled",
+      NONE: "No Plan"
+    };
+    return labels[s ?? "NONE"] ?? s ?? "Unknown";
   }
 
   currentPlanName(): string {
@@ -258,8 +264,13 @@ export class SubscriptionComponent implements OnInit {
 
   vendorLabel(): string {
     const v = this.status()?.vendor ?? "";
-    return { stripe: "Stripe", razorpay: "Razorpay", paypal: "PayPal",
-             noop: "demo payment processor" }[v] ?? v;
+    const vendors: Record<string, string> = {
+      stripe: "Stripe",
+      razorpay: "Razorpay",
+      paypal: "PayPal",
+      noop: "demo payment processor"
+    };
+    return vendors[v] ?? v;
   }
 
   subscribe(plan: Plan) {
@@ -268,7 +279,7 @@ export class SubscriptionComponent implements OnInit {
     this.selectedPlan.set(plan.id);
 
     // Get the current user's email from localStorage (set during login)
-    const userStr = localStorage.getItem("currentUser");
+    const userStr = localStorage.getItem("current_user");
     const email = userStr ? JSON.parse(userStr).email ?? "" : "";
 
     this.http.post<any>(`${environment.apiUrl}/subscriptions/checkout`, {

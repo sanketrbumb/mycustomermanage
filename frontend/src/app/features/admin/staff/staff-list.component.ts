@@ -25,10 +25,9 @@ import { User, Location } from "../../../shared/models/admin.model";
                style="width:240px;"/>
         <select class="form-control" [(ngModel)]="roleFilter" style="width:140px;">
           <option value="">All Roles</option>
-          <option>SUPER_ADMIN</option>
-          <option>MANAGER</option>
-          <option>STAFF</option>
-          <option>RESOURCE</option>
+          @for (r of roles(); track r.id) {
+            <option [value]="r.name">{{ r.name }}</option>
+          }
         </select>
         <select class="form-control" [(ngModel)]="statusFilter" style="width:130px;">
           <option value="">All Status</option>
@@ -59,7 +58,7 @@ import { User, Location } from "../../../shared/models/admin.model";
                 </td>
                 <td>{{ u.username }}</td>
                 <td>
-                  <span class="role-badge" [ngClass]="roleCss(u.role)">{{ u.role }}</span>
+                  <span class="role-badge" [ngClass]="roleCss(u.role)">{{ u.roleName || u.role }}</span>
                 </td>
                 <td>{{ locationName(u.locationId) }}</td>
                 <td>
@@ -142,10 +141,9 @@ import { User, Location } from "../../../shared/models/admin.model";
                 <div class="form-group">
                   <label class="form-label">Role *</label>
                   <select class="form-control" formControlName="role">
-                    <option value="SUPER_ADMIN">Super Admin</option>
-                    <option value="MANAGER">Manager</option>
-                    <option value="STAFF">Staff</option>
-                    <option value="RESOURCE">Resource</option>
+                    @for (r of roles(); track r.id) {
+                      <option [value]="r.name">{{ r.name }}</option>
+                    }
                   </select>
                 </div>
                 <div class="form-group">
@@ -206,6 +204,7 @@ import { User, Location } from "../../../shared/models/admin.model";
 export class StaffListComponent implements OnInit {
   users     = signal<User[]>([]);
   locations = signal<Location[]>([]);
+  roles     = signal<any[]>([]);
   search      = "";
   roleFilter  = "";
   statusFilter = "";
@@ -237,6 +236,7 @@ export class StaffListComponent implements OnInit {
   ngOnInit() {
     this.load();
     this.adminSvc.getLocations().subscribe(l => this.locations.set(l));
+    this.adminSvc.getRoles().subscribe(r => this.roles.set(r));
   }
 
   load() { this.adminSvc.getUsers().subscribe(u => this.users.set([...u])); }
@@ -281,7 +281,7 @@ export class StaffListComponent implements OnInit {
         firstName: u.firstName, lastName: u.lastName,
         username: u.username, email: u.email ?? "",
         phone: u.phone ?? "", password: "",
-        role: u.role, locationId: u.locationId ?? null,
+        role: u.roleName || u.role, locationId: u.locationId ?? null,
         canBookAppts: u.canBookAppts, active: u.active,
       });
       this.form.get("username")!.disable();

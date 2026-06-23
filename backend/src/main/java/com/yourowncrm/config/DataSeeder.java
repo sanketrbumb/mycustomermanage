@@ -11,6 +11,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import java.util.UUID;
 import java.util.logging.Logger;
+import com.yourowncrm.config.RoleSeeder;
 
 @Component
 public class DataSeeder implements CommandLineRunner {
@@ -22,14 +23,16 @@ public class DataSeeder implements CommandLineRunner {
     private final TenantRepository tenantRepo;
     private final UserRepository   userRepo;
     private final PasswordEncoder  passwordEncoder;
+	private final RoleSeeder roleSeeder;
 
     @Autowired
     public DataSeeder(TenantRepository tenantRepo,
                       UserRepository userRepo,
-                      PasswordEncoder passwordEncoder) {
+                      PasswordEncoder passwordEncoder, RoleSeeder roleSeeder) {
         this.tenantRepo      = tenantRepo;
         this.userRepo        = userRepo;
         this.passwordEncoder = passwordEncoder;
+        this.roleSeeder      = roleSeeder;
     }
 
     @Override
@@ -47,6 +50,7 @@ public class DataSeeder implements CommandLineRunner {
         tenant.setCurrencyCode("USD");
         tenant.setActive(true);
         tenantRepo.save(tenant);
+		roleSeeder.seedDefaultRolesFor(tenant.getId());
         log.info("Seeded demo tenant.");
 
         seedUser("admin",   "admin@yourowncrm.com",   "admin123",   "Admin",   "User",    UserRole.SUPER_ADMIN);
@@ -71,6 +75,7 @@ public class DataSeeder implements CommandLineRunner {
         u.setFirstName(first);
         u.setLastName(last);
         u.setRole(role);
+        u.setRoleName(role.name());
         u.setActive(true);
         u.setLocked(false);
         u.setFailCount((short) 0);

@@ -5,6 +5,7 @@ export interface User {
   firstName: string;
   lastName: string;
   role: "SUPER_ADMIN" | "MANAGER" | "STAFF" | "RESOURCE";
+  roleName?: string;
   phone?: string;
   locationId?: number;
   canBookAppts: boolean;

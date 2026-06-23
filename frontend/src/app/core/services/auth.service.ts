@@ -1,62 +1,116 @@
-import { Injectable, signal } from "@angular/core";
+import { Injectable, signal, computed } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { Router } from "@angular/router";
-import { tap } from "rxjs/operators";
 import { environment } from "../../../environments/environment";
+import { tap, map, switchMap } from "rxjs/operators";
 
-export interface AuthUser {
-  userId: number; username: string; fullName: string;
-  role: string; tenantId: string; tenantName: string;
+export interface CurrentUser {
+  id: number;
+  username: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  email: string;
+  role: "SUPER_ADMIN" | "MANAGER" | "STAFF";
+  canBookAppts: boolean;
+  permissions: string[];  // Permission enum names from backend
 }
 
+/**
+ * Central auth service — single source of truth for:
+ *   - JWT token storage
+ *   - Current user profile
+ *   - Permission checks (all code reads permissions, never role names directly)
+ *
+ * Angular components NEVER check the role string directly.
+ * They call can('BILLING_VIEW') or canAny('INVOICE_CREATE','INVOICE_VOID').
+ * This means adding a permission to a role in the backend automatically
+ * unlocks the UI without any frontend changes.
+ */
 @Injectable({ providedIn: "root" })
 export class AuthService {
-  private readonly TOKEN_KEY = "crm_token";
-  currentUser = signal<AuthUser | null>(this.decodeToken(this.getToken()));
 
-  constructor(private http: HttpClient, private router: Router) {}
+  private _user = signal<CurrentUser | null>(null);
+  private _token = signal<string | null>(localStorage.getItem("jwt_token"));
+
+  readonly currentUser = this._user.asReadonly();
+  readonly isLoggedIn = computed(() => !!this._token() && !!this._user());
+
+  constructor(private http: HttpClient, private router: Router) {
+    // Restore user from storage on page reload
+    const stored = localStorage.getItem("current_user");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed && !parsed.fullName) {
+          parsed.fullName = `${parsed.firstName} ${parsed.lastName}`.trim();
+        }
+        this._user.set(parsed);
+      } catch {
+        this.logout();
+      }
+    }
+  }
+
+  // ── Login flow ────────────────────────────────────────────────────────────
 
   login(tenantSlug: string, username: string, password: string) {
-    return this.http.post<any>(`${environment.apiUrl}/auth/login`,
-        { tenantSlug, username, password }).pipe(
+    return this.http.post<{ accessToken: string }>(
+      `${environment.apiUrl}/auth/login`, { tenantSlug, username, password }
+    ).pipe(
       tap(res => {
-        localStorage.setItem(this.TOKEN_KEY, res.accessToken);
-        this.currentUser.set(this.decodeToken(res.accessToken));
+        this._token.set(res.accessToken);
+        localStorage.setItem("jwt_token", res.accessToken);
+      }),
+      switchMap(() => this.loadMe())
+    );
+  }
+
+  /** Call after login to load the user's profile + permissions */
+  loadMe() {
+    return this.http.get<CurrentUser>(`${environment.apiUrl}/auth/me`).pipe(
+      map(user => {
+        const enriched = { ...user, fullName: `${user.firstName} ${user.lastName}`.trim() };
+        this._user.set(enriched);
+        localStorage.setItem("current_user", JSON.stringify(enriched));
+        return enriched;
       })
     );
   }
 
   logout() {
-    // Fire-and-forget audit log entry on the server before clearing the token.
-    // Don't block navigation on this — use the token that's about to be removed.
-    const token = this.getToken();
-    if (token) {
-      this.http.post(`${environment.apiUrl}/auth/logout`, {}).subscribe({
-        next: () => {},
-        error: () => {} // logout proceeds regardless of audit call outcome
-      });
-    }
-    localStorage.removeItem(this.TOKEN_KEY);
-    this.currentUser.set(null);
+    this._token.set(null);
+    this._user.set(null);
+    localStorage.removeItem("jwt_token");
+    localStorage.removeItem("current_user");
     this.router.navigate(["/login"]);
   }
 
-  getToken(): string | null { return localStorage.getItem(this.TOKEN_KEY); }
-  isLoggedIn(): boolean     { return !!this.getToken(); }
+  getToken(): string | null { return this._token(); }
 
-  hasRole(...roles: string[]): boolean {
-    return roles.includes(this.currentUser()?.role ?? "");
+  // ── Permission checks — use these everywhere, never check role directly ───
+
+  /** True if the current user has ALL of the given permissions */
+  can(...permissions: string[]): boolean {
+    const user = this._user();
+    if (!user) return false;
+    return permissions.every(p => user.permissions.includes(p));
   }
 
-  private decodeToken(token: string | null): AuthUser | null {
-    if (!token) return null;
-    try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      return {
-        userId: +payload.sub, username: payload.username,
-        fullName: payload.fullName, role: payload.role,
-        tenantId: payload.tenantId, tenantName: payload.tenantName
-      };
-    } catch { return null; }
+  /** True if the current user has ANY of the given permissions */
+  canAny(...permissions: string[]): boolean {
+    const user = this._user();
+    if (!user) return false;
+    return permissions.some(p => user.permissions.includes(p));
+  }
+
+  /** True if the user can book appointments (has permission AND flag set) */
+  canBook(): boolean {
+    return this.can("APPOINTMENT_CREATE") && (this._user()?.canBookAppts ?? false);
+  }
+
+  /** True if user is SUPER_ADMIN (for truly admin-only UI, e.g. subscription page) */
+  isSuperAdmin(): boolean {
+    return this._user()?.role === "SUPER_ADMIN";
   }
 }

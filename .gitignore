@@ -25,4 +25,4 @@ Thumbs.db
 *.swp
 
 # ── Bad Windows brace-expansion folder ────────────
-frontend/src/app/{core*
+# frontend/src/app/{core*

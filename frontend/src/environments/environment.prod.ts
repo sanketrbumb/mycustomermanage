@@ -1,4 +1,9 @@
 export const environment = {
   production: true,
-  apiUrl: '/api'
+  apiUrl: '/api',
+  plans: {
+    starter: 'plan_starter',
+    growth: 'plan_growth',
+    pro: 'plan_pro'
+  }
 };

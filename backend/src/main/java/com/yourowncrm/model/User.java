@@ -19,6 +19,15 @@ public class User extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable=false, columnDefinition="VARCHAR(20)")
     private UserRole role = UserRole.STAFF;
+
+    /**
+     * FK to roles.name — used by PermissionService to look up DB-driven permissions.
+     * Kept in sync with role.name() for built-in roles.
+     * For custom roles (Auditor, Intern etc.) this holds the custom role name
+     * while role stays as the closest built-in enum value for Spring Security.
+     */
+    @Column(name="role_name", length=60)
+    private String roleName;
     @Column(length=20) private String phone;
     @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="location_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
@@ -46,6 +55,8 @@ public class User extends BaseEntity {
     public void setLastName(String v) { this.lastName=v; }
     public UserRole getRole() { return role; }
     public void setRole(UserRole v) { this.role=v; }
+    public String getRoleName() { return roleName; }
+    public void setRoleName(String v) { this.roleName=v; }
     public String getPhone() { return phone; }
     public void setPhone(String v) { this.phone=v; }
     public Location getLocation() { return location; }
@@ -89,7 +100,8 @@ public class User extends BaseEntity {
         public Builder passwordHash(String v)  { u.passwordHash=v; return this; }
         public Builder firstName(String v)     { u.firstName=v; return this; }
         public Builder lastName(String v)      { u.lastName=v; return this; }
-        public Builder role(UserRole v)        { u.role=v; return this; }
+        public Builder role(UserRole v)        { u.role=v; u.roleName=v.name(); return this; }
+        public Builder roleName(String v)      { u.roleName=v; return this; }
         public Builder phone(String v)         { u.phone=v; return this; }
         public Builder active(boolean v)       { u.active=v; return this; }
         public Builder locked(boolean v)       { u.locked=v; return this; }

@@ -1,11 +1,12 @@
 import { Component, signal } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
+import { RouterLink } from "@angular/router";
 
 @Component({
   selector: "app-settings",
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <div>
       <div class="page-header">
@@ -37,8 +38,9 @@ import { FormsModule } from "@angular/forms";
           </div>
         </div>
 
-        <div style="margin-top:24px;padding:16px;background:var(--jade-mist);border-radius:var(--radius);font-size:13px;color:var(--jade);">
-          ℹ️ Full permissions matrix and audit log coming in the next release.
+        <div style="margin-top:24px;padding:16px;background:var(--jade-mist);border-radius:var(--radius);font-size:13px;color:var(--jade);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+          <span>ℹ️ Manage role permissions and access levels directly in the Roles panel.</span>
+          <a class="btn btn-outline btn-sm" routerLink="/admin/roles">Configure Roles →</a>
         </div>
       </div>
     </div>

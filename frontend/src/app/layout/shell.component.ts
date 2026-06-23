@@ -153,6 +153,8 @@ export class ShellComponent {
         { icon: "🔄", label: "Visit Statuses", route: "/admin/visit-statuses", roles: ["SUPER_ADMIN","MANAGER"] },
         { icon: "📍", label: "Locations",      route: "/admin/locations",      roles: ["SUPER_ADMIN","MANAGER"] },
         { icon: "🕐", label: "Resource Hours", route: "/admin/resource-hours", roles: ["SUPER_ADMIN","MANAGER"] },
+        { icon: "🔐", label: "Roles",          route: "/admin/roles",          roles: ["SUPER_ADMIN"] },
+        { icon: "💰", label: "Subscription",   route: "/settings/billing",     roles: ["SUPER_ADMIN"] },
         { icon: "⚙️", label: "Settings",       route: "/admin/settings",       roles: ["SUPER_ADMIN"] },
       ]
     }
@@ -168,7 +170,7 @@ export class ShellComponent {
 
   userInitials = computed(() => {
     const name = this.auth.currentUser()?.fullName ?? "";
-    return name.split(" ").map(p => p[0]).join("").toUpperCase().slice(0, 2);
+    return name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
   });
 
   constructor(public auth: AuthService, private router: Router) {}
