@@ -75,7 +75,7 @@ public class AppointmentController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MANAGER','STAFF')")
+    @PreAuthorize("hasAuthority('APPOINTMENT_CREATE')")
     public ResponseEntity<AppointmentResponse> create(
             @RequestHeader("Authorization") String token,
             @Valid @RequestBody AppointmentRequest req) {
@@ -86,7 +86,7 @@ public class AppointmentController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MANAGER','STAFF')")
+    @PreAuthorize("hasAnyAuthority('APPOINTMENT_EDIT_ANY','APPOINTMENT_EDIT_OWN')")
     public AppointmentResponse update(
             @RequestHeader("Authorization") String token,
             @PathVariable Long id,
@@ -97,7 +97,7 @@ public class AppointmentController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MANAGER','STAFF')")
+    @PreAuthorize("hasAuthority('APPOINTMENT_CANCEL')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void cancel(
             @RequestHeader("Authorization") String token,

@@ -4,6 +4,7 @@ import com.yourowncrm.dto.request.LoginRequest;
 import com.yourowncrm.dto.response.AuthResponse;
 import com.yourowncrm.exception.BusinessException;
 import com.yourowncrm.exception.ResourceNotFoundException;
+import com.yourowncrm.model.Tenant;
 import com.yourowncrm.model.User;
 import com.yourowncrm.model.enums.UserRole;
 import com.yourowncrm.repository.LocationRepository;
@@ -77,7 +78,7 @@ public class UserServiceImpl implements UserService {
         if (!encoder.matches(req.getPassword(), user.getPasswordHash())) {
             short fails = (short)(user.getFailCount() + 1);
             user.setFailCount(fails);
-            if (fails >= MAX_FAIL) {
+            if (fails >= tenant.getMaxFailedLogins()) {
                 user.setLocked(true);
                 log.warning("User " + user.getUsername() + " locked after " + fails + " failures");
                 AUDIT.warn("ACCOUNT_LOCKED user={} tenant={} failures={}",
@@ -127,12 +128,18 @@ public class UserServiceImpl implements UserService {
         String username = (String) req.get("username");
         if (userRepo.findByTenantIdAndUsername(tenantId, username).isPresent())
             throw new BusinessException("Username already taken: " + username);
+        Tenant tenant = tenantRepo.findById(tenantId)
+            .orElseThrow(() -> new BusinessException("Tenant not found"));
+        String rawPassword = (String) req.get("password");
+        if (rawPassword == null || rawPassword.length() < tenant.getMinPasswordLength()) {
+            throw new BusinessException("Password must be at least " + tenant.getMinPasswordLength() + " characters long.");
+        }
         User u = new User();
         u.setTenantId(tenantId);
         u.setUsername(username);
         String emailVal = (String) req.get("email");
         u.setEmail(emailVal != null && !emailVal.isBlank() ? emailVal : null);
-        u.setPasswordHash(encoder.encode((String) req.get("password")));
+        u.setPasswordHash(encoder.encode(rawPassword));
         u.setFirstName((String) req.get("firstName"));
         u.setLastName((String) req.get("lastName"));
         assignRole(u, (String) req.getOrDefault("role", "STAFF"));
@@ -171,8 +178,15 @@ public class UserServiceImpl implements UserService {
         if (req.containsKey("active"))       u.setActive((Boolean) req.get("active"));
         if (req.containsKey("canBookAppts")) u.setCanBookAppts((Boolean) req.get("canBookAppts"));
         if (req.containsKey("password") && req.get("password") != null
-                && !req.get("password").toString().isEmpty())
-            u.setPasswordHash(encoder.encode((String) req.get("password")));
+                && !req.get("password").toString().isEmpty()) {
+            String rawPassword = req.get("password").toString();
+            Tenant tenant = tenantRepo.findById(tenantId)
+                .orElseThrow(() -> new BusinessException("Tenant not found"));
+            if (rawPassword.length() < tenant.getMinPasswordLength()) {
+                throw new BusinessException("Password must be at least " + tenant.getMinPasswordLength() + " characters long.");
+            }
+            u.setPasswordHash(encoder.encode(rawPassword));
+        }
         if (req.containsKey("_updatedBy")) u.setUpdatedBy((Long) req.get("_updatedBy"));
         return userRepo.save(u);
     }

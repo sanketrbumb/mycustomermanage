@@ -5,6 +5,7 @@ import com.yourowncrm.repository.UserRepository;
 import com.yourowncrm.security.Permission;
 import com.yourowncrm.security.RolePermissionMap;
 import com.yourowncrm.security.JwtTokenProvider;
+import com.yourowncrm.security.PermissionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -39,11 +40,13 @@ public class AuthMeController {
 
     private final UserRepository    userRepo;
     private final JwtTokenProvider  jwt;
+    private final PermissionService permissionService;
 
     @Autowired
-    public AuthMeController(UserRepository userRepo, JwtTokenProvider jwt) {
+    public AuthMeController(UserRepository userRepo, JwtTokenProvider jwt, PermissionService permissionService) {
         this.userRepo = userRepo;
         this.jwt      = jwt;
+        this.permissionService = permissionService;
     }
 
     @GetMapping("/me")
@@ -55,10 +58,7 @@ public class AuthMeController {
             .filter(u -> u.getTenantId().equals(tenantId))
             .orElseThrow(() -> new RuntimeException("User not found"));
 
-        Set<String> permissions = RolePermissionMap.of(user.getRole())
-            .stream()
-            .map(Permission::name)
-            .collect(Collectors.toSet());
+        Set<String> permissions = permissionService.permissionNamesFor(tenantId, userId);
 
         return Map.of(
             "id",           user.getId(),

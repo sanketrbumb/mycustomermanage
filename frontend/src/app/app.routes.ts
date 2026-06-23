@@ -19,12 +19,12 @@ export const routes: Routes = [
       { path: "admin/customers",       canActivate: [permissionGuard("CUSTOMER_VIEW")],       loadComponent: () => import("./features/admin/customers/customer-list.component").then(m => m.CustomerListComponent) },
       { path: "admin/resource-hours",  canActivate: [permissionGuard("RESOURCE_MANAGE")],     loadComponent: () => import("./features/admin/resource-hours/resource-hours.component").then(m => m.ResourceHoursComponent) },
       { path: "admin/settings",        canActivate: [permissionGuard("SETTINGS_VIEW")],       loadComponent: () => import("./features/admin/settings/settings.component").then(m => m.SettingsComponent) },
-      { path: "admin/roles",           canActivate: [superAdminGuard],                        loadComponent: () => import("./features/admin/roles/roles.component").then(m => m.RolesComponent) },
+      { path: "admin/roles",           canActivate: [permissionGuard("SUBSCRIPTION_MANAGE")], loadComponent: () => import("./features/admin/roles/roles.component").then(m => m.RolesComponent) },
       { path: "billing/invoices",      canActivate: [permissionGuard("BILLING_VIEW")],        loadComponent: () => import("./features/billing/invoice-list.component").then(m => m.InvoiceListComponent) },
       { path: "billing/payments",      canActivate: [permissionGuard("BILLING_VIEW")],        loadComponent: () => import("./features/billing/payment-form.component").then(m => m.PaymentFormComponent) },
       { path: "billing/refunds",       canActivate: [permissionGuard("BILLING_VIEW")],        loadComponent: () => import("./features/billing/refund-list.component").then(m => m.RefundListComponent) },
       { path: "reports",               canActivate: [permissionGuard("REPORT_VIEW")],         loadComponent: () => import("./features/reports/reports.component").then(m => m.ReportsComponent) },
-      { path: "settings/billing",      canActivate: [superAdminGuard],                        loadComponent: () => import("./features/settings/subscription.component").then(m => m.SubscriptionComponent) },
+      { path: "settings/billing",      canActivate: [permissionGuard("SUBSCRIPTION_MANAGE")], loadComponent: () => import("./features/settings/subscription.component").then(m => m.SubscriptionComponent) },
     ]
   },
   { path: "**", redirectTo: "login" }

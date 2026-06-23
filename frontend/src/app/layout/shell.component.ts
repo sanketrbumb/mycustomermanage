@@ -4,8 +4,8 @@ import { CommonModule } from "@angular/common";
 import { filter } from "rxjs/operators";
 import { AuthService } from "../core/services/auth.service";
 
-interface NavItem  { icon: string; label: string; route: string; roles?: string[]; }
-interface NavGroup { label: string; items: NavItem[]; roles?: string[]; }
+interface NavItem  { icon: string; label: string; route: string; permissions?: string[]; }
+interface NavGroup { label: string; items: NavItem[]; permissions?: string[]; }
 
 @Component({
   selector: "app-shell",
@@ -130,41 +130,41 @@ export class ShellComponent {
     {
       label: "Operations",
       items: [
-        { icon: "📅", label: "Schedule", route: "/schedule" },
+        { icon: "📅", label: "Schedule", route: "/schedule", permissions: ["SCHEDULE_VIEW"] },
       ]
     },
     {
       label: "Billing",
       items: [
-        { icon: "🧾", label: "Invoices",  route: "/billing/invoices" },
-        { icon: "💳", label: "Payments",  route: "/billing/payments" },
-        { icon: "↩", label: "Refunds",   route: "/billing/refunds" },
-        { icon: "📊", label: "Reports",   route: "/reports" },
+        { icon: "🧾", label: "Invoices",  route: "/billing/invoices",  permissions: ["BILLING_VIEW"] },
+        { icon: "💳", label: "Payments",  route: "/billing/payments",  permissions: ["BILLING_VIEW"] },
+        { icon: "↩", label: "Refunds",   route: "/billing/refunds",   permissions: ["BILLING_VIEW"] },
+        { icon: "📊", label: "Reports",   route: "/reports",           permissions: ["REPORT_VIEW"] },
       ]
     },
     {
       label: "Admin",
-      roles: ["SUPER_ADMIN", "MANAGER"],
       items: [
-        { icon: "👤", label: "Staff",          route: "/admin/staff",          roles: ["SUPER_ADMIN","MANAGER"] },
-        { icon: "🏠", label: "Resources",      route: "/admin/resources",      roles: ["SUPER_ADMIN","MANAGER"] },
-        { icon: "👥", label: "Customers",      route: "/admin/customers",      roles: ["SUPER_ADMIN","MANAGER"] },
-        { icon: "🏷️", label: "Visit Types",    route: "/admin/visit-types",    roles: ["SUPER_ADMIN","MANAGER"] },
-        { icon: "🔄", label: "Visit Statuses", route: "/admin/visit-statuses", roles: ["SUPER_ADMIN","MANAGER"] },
-        { icon: "📍", label: "Locations",      route: "/admin/locations",      roles: ["SUPER_ADMIN","MANAGER"] },
-        { icon: "🕐", label: "Resource Hours", route: "/admin/resource-hours", roles: ["SUPER_ADMIN","MANAGER"] },
-        { icon: "🔐", label: "Roles",          route: "/admin/roles",          roles: ["SUPER_ADMIN"] },
-        { icon: "💰", label: "Subscription",   route: "/settings/billing",     roles: ["SUPER_ADMIN"] },
-        { icon: "⚙️", label: "Settings",       route: "/admin/settings",       roles: ["SUPER_ADMIN"] },
+        { icon: "👤", label: "Staff",          route: "/admin/staff",          permissions: ["USER_VIEW"] },
+        { icon: "🏠", label: "Resources",      route: "/admin/resources",      permissions: ["RESOURCE_MANAGE"] },
+        { icon: "👥", label: "Customers",      route: "/admin/customers",      permissions: ["CUSTOMER_VIEW"] },
+        { icon: "🏷️", label: "Visit Types",    route: "/admin/visit-types",    permissions: ["VISIT_TYPE_MANAGE"] },
+        { icon: "🔄", label: "Visit Statuses", route: "/admin/visit-statuses", permissions: ["VISIT_TYPE_MANAGE"] },
+        { icon: "📍", label: "Locations",      route: "/admin/locations",      permissions: ["LOCATION_MANAGE"] },
+        { icon: "🕐", label: "Resource Hours", route: "/admin/resource-hours", permissions: ["RESOURCE_MANAGE"] },
+        { icon: "🔐", label: "Roles",          route: "/admin/roles",          permissions: ["SUBSCRIPTION_MANAGE"] },
+        { icon: "💰", label: "Subscription",   route: "/settings/billing",     permissions: ["SUBSCRIPTION_MANAGE"] },
+        { icon: "⚙️", label: "Settings",       route: "/admin/settings",       permissions: ["SETTINGS_VIEW"] },
       ]
     }
   ];
 
   visibleGroups = computed(() => {
-    const role = this.auth.currentUser()?.role ?? "";
     return this.GROUPS
-      .filter(g => !g.roles || g.roles.includes(role))
-      .map(g => ({ ...g, items: g.items.filter(i => !i.roles || i.roles.includes(role)) }))
+      .map(g => ({
+        ...g,
+        items: g.items.filter(i => !i.permissions || this.auth.canAny(...i.permissions))
+      }))
       .filter(g => g.items.length > 0);
   });
 

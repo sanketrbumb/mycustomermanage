@@ -34,7 +34,7 @@ public class BillingController {
 
     // ── Invoices ──────────────────────────────────────────────────────
     @PostMapping("/api/invoices/from-appointment/{apptId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MANAGER','STAFF')")
+    @PreAuthorize("hasAuthority('INVOICE_CREATE')")
     public ResponseEntity<InvoiceResponse> generateFromAppt(
             @RequestHeader("Authorization") String token,
             @PathVariable Long apptId) {
@@ -62,7 +62,7 @@ public class BillingController {
     }
 
     @PostMapping("/api/invoices")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MANAGER','STAFF')")
+    @PreAuthorize("hasAuthority('INVOICE_CREATE')")
     public ResponseEntity<InvoiceResponse> createInvoice(
             @RequestHeader("Authorization") String token,
             @Valid @RequestBody InvoiceRequest req) {
@@ -71,7 +71,7 @@ public class BillingController {
     }
 
     @PutMapping("/api/invoices/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MANAGER','STAFF')")
+    @PreAuthorize("hasAuthority('INVOICE_CREATE')")
     public InvoiceResponse updateInvoice(
             @RequestHeader("Authorization") String token,
             @PathVariable Long id,
@@ -80,7 +80,7 @@ public class BillingController {
     }
 
     @DeleteMapping("/api/invoices/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MANAGER')")
+    @PreAuthorize("hasAuthority('INVOICE_VOID')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void voidInvoice(
             @RequestHeader("Authorization") String token,
@@ -107,7 +107,7 @@ public class BillingController {
     }
 
     @PostMapping("/api/payments")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','MANAGER','STAFF')")
+    @PreAuthorize("hasAnyAuthority('PAYMENT_COLLECT','PAYMENT_COLLECT_OWN')")
     @ResponseStatus(HttpStatus.CREATED)
     public void postPayment(
             @RequestHeader("Authorization") String token,

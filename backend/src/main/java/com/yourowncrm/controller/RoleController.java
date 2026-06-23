@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
  */
 @RestController
 @RequestMapping("/api/roles")
-@PreAuthorize("hasRole('SUPER_ADMIN')")
+@PreAuthorize("hasAuthority('SUBSCRIPTION_MANAGE')")
 public class RoleController {
 
     private final RoleRepository   roleRepo;

@@ -98,4 +98,17 @@ public class Tenant {
 
     public LocalDate getCurrentPeriodEnd()              { return currentPeriodEnd; }
     public void      setCurrentPeriodEnd(LocalDate v)   { this.currentPeriodEnd = v; }
+
+    // ── Password Policy settings ─────────────────────────────────────────────
+    @Column(name = "min_password_length", nullable = false)
+    private int minPasswordLength = 6;
+
+    @Column(name = "max_failed_logins", nullable = false)
+    private int maxFailedLogins = 5;
+
+    public int getMinPasswordLength() { return minPasswordLength; }
+    public void setMinPasswordLength(int v) { this.minPasswordLength = v; }
+
+    public int getMaxFailedLogins() { return maxFailedLogins; }
+    public void setMaxFailedLogins(int v) { this.maxFailedLogins = v; }
 }
