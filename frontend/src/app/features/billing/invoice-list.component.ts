@@ -356,7 +356,7 @@ interface LineRow {
                     @if (!lines.length) {
                       <tr>
                         <td colspan="6" style="text-align:center;padding:16px;color:var(--ink-light);">
-                          No line items yet. Click "Add Line" or type a visit type name.
+                          No line items yet. Click "Add Line" or type a appt type name.
                         </td>
                       </tr>
                     }

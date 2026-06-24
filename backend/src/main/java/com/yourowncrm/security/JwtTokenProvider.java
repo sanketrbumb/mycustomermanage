@@ -1,6 +1,7 @@
 package com.yourowncrm.security;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
@@ -16,6 +17,13 @@ public class JwtTokenProvider {
     @Value("${app.jwt.secret}") private String jwtSecret;
     @Value("${app.jwt.expiration-ms}") private long jwtExpirationMs;
 
+    private final ServerInstance serverInstance;
+
+    @Autowired
+    public JwtTokenProvider(ServerInstance serverInstance) {
+        this.serverInstance = serverInstance;
+    }
+
     private SecretKey key() {
         return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
     }
@@ -26,6 +34,7 @@ public class JwtTokenProvider {
             .claim("username", username)
             .claim("role", role)
             .claim("tenantId", tenantId.toString())
+            .claim("srv", serverInstance.getInstanceId())
             .issuedAt(new Date())
             .expiration(new Date(System.currentTimeMillis() + jwtExpirationMs))
             .signWith(key())
@@ -47,5 +56,6 @@ public class JwtTokenProvider {
 
     public Long getUserId(String token) { return Long.valueOf(parseToken(token).getSubject()); }
     public String getUsername(String token) { return parseToken(token).get("username", String.class); }
-    public UUID getTenantId(String token) { return UUID.fromString(parseToken(token).get("tenantId", String.class)); }
+    public UUID   getTenantId(String token)        { return UUID.fromString(parseToken(token).get("tenantId", String.class)); }
+    public String getServerInstanceId(String token) { return parseToken(token).get("srv", String.class); }
 }

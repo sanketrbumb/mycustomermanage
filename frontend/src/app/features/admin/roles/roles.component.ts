@@ -43,7 +43,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   USER_DEACTIVATE:         "Deactivate / reactivate staff",
   RESOURCE_MANAGE:         "Manage resources & hours",
   LOCATION_MANAGE:         "Manage locations",
-  VISIT_TYPE_MANAGE:       "Manage visit types & statuses",
+  VISIT_TYPE_MANAGE:       "Manage appt types & statuses",
   SETTINGS_VIEW:           "View settings",
   SETTINGS_EDIT:           "Edit org settings",
   REPORT_VIEW:             "Access reports",

@@ -22,11 +22,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider tokenProvider;
     private final PermissionService permissionService;
+    private final ServerInstance serverInstance;
 
     @Autowired
-    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider, PermissionService permissionService) {
-        this.tokenProvider = tokenProvider;
+    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider,
+                                   PermissionService permissionService,
+                                   ServerInstance serverInstance) {
+        this.tokenProvider     = tokenProvider;
         this.permissionService = permissionService;
+        this.serverInstance    = serverInstance;
     }
 
     @Override
@@ -35,6 +39,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain chain) throws ServletException, IOException {
         String token = resolveToken(req);
         if (token != null && tokenProvider.validateToken(token)) {
+            // Feature: log out all users on server restart.
+            // Tokens issued before this server started carry an old "srv" claim
+            // that no longer matches — reject them silently (no authentication set).
+            String tokenSrv = tokenProvider.getServerInstanceId(token);
+            if (tokenSrv == null || !tokenSrv.equals(serverInstance.getInstanceId())) {
+                chain.doFilter(req, res);
+                return;
+            }
+
             var claims = tokenProvider.parseToken(token);
             String role = claims.get("role", String.class);
             UUID tenantId = UUID.fromString(claims.get("tenantId", String.class));

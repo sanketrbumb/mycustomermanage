@@ -111,4 +111,11 @@ public class Tenant {
 
     public int getMaxFailedLogins() { return maxFailedLogins; }
     public void setMaxFailedLogins(int v) { this.maxFailedLogins = v; }
+
+    // ── Idle session timeout ─────────────────────────────────────────────────
+    @Column(name = "idle_timeout_minutes", nullable = false)
+    private int idleTimeoutMinutes = 60;
+
+    public int  getIdleTimeoutMinutes()      { return idleTimeoutMinutes; }
+    public void setIdleTimeoutMinutes(int v) { this.idleTimeoutMinutes = v; }
 }

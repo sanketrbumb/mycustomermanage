@@ -30,11 +30,12 @@ public class SettingsController {
         Tenant tenant = tenantRepo.findById(tenantId)
                 .orElseThrow(() -> new RuntimeException("Tenant not found"));
 
-        return Map.of(
-                "practiceName", tenant.getName(),
-                "minPasswordLength", tenant.getMinPasswordLength(),
-                "maxFailedLogins", tenant.getMaxFailedLogins()
-        );
+        java.util.Map<String,Object> out = new java.util.HashMap<>();
+        out.put("practiceName",       tenant.getName());
+        out.put("minPasswordLength",  tenant.getMinPasswordLength());
+        out.put("maxFailedLogins",    tenant.getMaxFailedLogins());
+        out.put("idleTimeoutMinutes", tenant.getIdleTimeoutMinutes());
+        return out;
     }
 
     @PutMapping
@@ -58,10 +59,11 @@ public class SettingsController {
 
         tenantRepo.save(tenant);
 
-        return Map.of(
-                "practiceName", tenant.getName(),
-                "minPasswordLength", tenant.getMinPasswordLength(),
-                "maxFailedLogins", tenant.getMaxFailedLogins()
-        );
+        java.util.Map<String,Object> out = new java.util.HashMap<>();
+        out.put("practiceName",       tenant.getName());
+        out.put("minPasswordLength",  tenant.getMinPasswordLength());
+        out.put("maxFailedLogins",    tenant.getMaxFailedLogins());
+        out.put("idleTimeoutMinutes", tenant.getIdleTimeoutMinutes());
+        return out;
     }
 }

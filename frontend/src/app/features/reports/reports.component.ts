@@ -103,7 +103,7 @@ import { ReportSummary } from "../../shared/models/invoice.model";
 
         <div class="charts-row">
           <mat-card class="chart-card">
-            <mat-card-header><mat-card-title>Revenue by visit type</mat-card-title></mat-card-header>
+            <mat-card-header><mat-card-title>Revenue by appt type</mat-card-title></mat-card-header>
             <mat-card-content>
               @if (revenueEntries().length) {
                 <div class="bar-chart">

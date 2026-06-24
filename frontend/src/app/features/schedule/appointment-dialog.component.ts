@@ -137,12 +137,12 @@ import { environment } from "../../../environments/environment";
               <input type="time" class="form-control" formControlName="endTime"/>
             </div>
 
-            <!-- Visit Type — search box -->
+            <!-- Appt Type — search box -->
             <div class="form-group">
-              <label class="form-label">Visit Type *</label>
+              <label class="form-label">Appt Type *</label>
               <div style="position:relative;">
                 <input class="form-control" [formControl]="visitTypeSearch"
-                       placeholder="Search visit type…" autocomplete="off"
+                       placeholder="Search appt type…" autocomplete="off"
                        (focus)="showVtDrop.set(true)"
                        (blur)="onVtBlur()"/>
                 @if (showVtDrop() && visitTypeResults().length) {
@@ -157,9 +157,9 @@ import { environment } from "../../../environments/environment";
               </div>
             </div>
 
-            <!-- Visit Status — search box -->
+            <!-- Appt Status — search box -->
             <div class="form-group">
-              <label class="form-label">Visit Status *</label>
+              <label class="form-label">Appt Status *</label>
               <div style="position:relative;">
                 <input class="form-control" [formControl]="visitStatusSearch"
                        placeholder="Search status…" autocomplete="off"
@@ -290,7 +290,7 @@ export class AppointmentDialogComponent implements OnInit {
   locationManuallySet = false; // becomes true once user manually picks/clears a location
   selectedLocationName = signal("");
 
-  // Visit Type search
+  // Appt Type search
   visitTypeSearch = new FormControl("");
   visitTypeResults = signal<VisitType[]>([]);
   showVtDrop = signal(false);
@@ -298,7 +298,7 @@ export class AppointmentDialogComponent implements OnInit {
   _allLocations: Location[] = [];
   allVisitTypes: VisitType[] = [];
 
-  // Visit Status search
+  // Appt Status search
   visitStatusSearch = new FormControl("");
   visitStatusResults = signal<VisitStatus[]>([]);
   showVsDrop = signal(false);
@@ -961,7 +961,7 @@ export class AppointmentDialogComponent implements OnInit {
           <div style="overflow-x:auto;">
             <table class="crm-table">
               <thead>
-                <tr><th>Date</th><th>Time</th><th>Resource</th><th>Staff</th><th>Visit Type</th><th>Status</th><th>Charge</th><th>Invoice</th></tr>
+                <tr><th>Date</th><th>Time</th><th>Resource</th><th>Staff</th><th>Appt Type</th><th>Status</th><th>Charge</th><th>Invoice</th></tr>
               </thead>
               <tbody>
                 @for (v of filtered(); track v.id) {
@@ -1057,7 +1057,7 @@ export class AllVisitsDialogComponent implements OnInit {
         @if (tab === 'charges') {
           @if (visitTypeCharge) {
             <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--jade-mist);border-radius:var(--radius);margin-bottom:10px;font-size:13px;">
-              <span style="color:var(--jade);font-weight:600;">Base charge (Visit Type)</span>
+              <span style="color:var(--jade);font-weight:600;">Base charge (Appt Type)</span>
               <span style="font-weight:700;">{{ visitTypeCharge.description }} — {{ visitTypeCharge.unitPrice | currency }}</span>
             </div>
           }

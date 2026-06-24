@@ -17,10 +17,10 @@ interface ChargeCode { id: number; code: string; description: string; unitPrice:
     <div>
       <div class="page-header">
         <div>
-          <div class="page-title">Visit Types</div>
+          <div class="page-title">Appt Types</div>
           <div class="page-subtitle">Services with charge codes and durations</div>
         </div>
-        <button class="btn btn-primary" (click)="openModal()">+ Add Visit Type</button>
+        <button class="btn btn-primary" (click)="openModal()">+ Add Appt Type</button>
       </div>
 
       <div class="card">
@@ -68,7 +68,7 @@ interface ChargeCode { id: number; code: string; description: string; unitPrice:
               <tr>
                 <td colspan="7"
                     style="text-align:center;padding:32px;color:var(--ink-light);">
-                  No visit types yet.
+                  No appt types yet.
                 </td>
               </tr>
             }
@@ -81,14 +81,14 @@ interface ChargeCode { id: number; code: string; description: string; unitPrice:
       <div class="crm-overlay">
         <div class="crm-modal" (click)="$event.stopPropagation()">
           <div class="modal-header">
-            <h3>{{ editing() ? "Edit Visit Type" : "Add Visit Type" }}</h3>
+            <h3>{{ editing() ? "Edit Appt Type" : "Add Appt Type" }}</h3>
             <button class="close-btn" (click)="closeModal()">✕</button>
           </div>
           <div class="modal-body">
             <form [formGroup]="form">
               <div class="g2">
                 <div class="form-group gfull">
-                  <label class="form-label">Visit Type Name *</label>
+                  <label class="form-label">Appt Type Name *</label>
                   <input class="form-control" formControlName="name"
                          placeholder="e.g. Swedish Massage 60 min"/>
                 </div>
@@ -144,7 +144,7 @@ interface ChargeCode { id: number; code: string; description: string; unitPrice:
           <div class="modal-footer">
             <button class="btn btn-ghost" (click)="closeModal()">Cancel</button>
             <button class="btn btn-primary" (click)="save()" [disabled]="saving()">
-              {{ saving() ? "Saving…" : "Save Visit Type" }}
+              {{ saving() ? "Saving…" : "Save Appt Type" }}
             </button>
           </div>
         </div>

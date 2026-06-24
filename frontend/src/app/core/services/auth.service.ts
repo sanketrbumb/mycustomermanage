@@ -3,6 +3,7 @@ import { HttpClient } from "@angular/common/http";
 import { Router } from "@angular/router";
 import { environment } from "../../../environments/environment";
 import { tap, map, switchMap } from "rxjs/operators";
+import { IdleService } from "./idle.service";
 
 export interface CurrentUser {
   id: number;
@@ -15,6 +16,7 @@ export interface CurrentUser {
   canBookAppts: boolean;
   permissions: string[];  // Permission enum names from backend
   practiceName?: string;
+  idleTimeoutMinutes?: number;  // per-tenant idle auto-logout setting
 }
 
 /**
@@ -37,7 +39,9 @@ export class AuthService {
   readonly currentUser = this._user.asReadonly();
   readonly isLoggedIn = computed(() => !!this._token() && !!this._user());
 
-  constructor(private http: HttpClient, private router: Router) {
+  constructor(private http: HttpClient, private router: Router, private idle: IdleService) {
+    // Break the circular dependency: IdleService calls this callback on timeout
+    this.idle.setLogoutCallback(() => this.logout());
     // Restore user from storage on page reload
     const stored = localStorage.getItem("current_user");
     if (stored) {
@@ -74,12 +78,14 @@ export class AuthService {
         const enriched = { ...user, fullName: `${user.firstName} ${user.lastName}`.trim() };
         this._user.set(enriched);
         localStorage.setItem("current_user", JSON.stringify(enriched));
+        this.idle.start(enriched.idleTimeoutMinutes ?? 60);
         return enriched;
       })
     );
   }
 
   logout() {
+    this.idle.stop();
     this._token.set(null);
     this._user.set(null);
     localStorage.removeItem("jwt_token");

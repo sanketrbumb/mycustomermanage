@@ -69,16 +69,17 @@ public class AuthMeController {
 
         Set<String> permissions = permissionService.permissionNamesFor(tenantId, userId);
 
-        return Map.of(
-            "id",           user.getId(),
-            "username",     user.getUsername(),
-            "firstName",    user.getFirstName(),
-            "lastName",     user.getLastName(),
-            "email",        user.getEmail() != null ? user.getEmail() : "",
-            "role",         user.getRole().name(),
-            "canBookAppts", user.isCanBookAppts(),
-            "permissions",  permissions,
-            "practiceName", tenant.getName()
-        );
+        java.util.Map<String,Object> out = new java.util.HashMap<>();
+        out.put("id",                 user.getId());
+        out.put("username",           user.getUsername());
+        out.put("firstName",          user.getFirstName());
+        out.put("lastName",           user.getLastName());
+        out.put("email",              user.getEmail() != null ? user.getEmail() : "");
+        out.put("role",               user.getRole().name());
+        out.put("canBookAppts",       user.isCanBookAppts());
+        out.put("permissions",        permissions);
+        out.put("practiceName",       tenant.getName());
+        out.put("idleTimeoutMinutes", tenant.getIdleTimeoutMinutes());
+        return out;
     }
 }

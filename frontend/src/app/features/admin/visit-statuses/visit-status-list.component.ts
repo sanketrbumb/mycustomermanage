@@ -13,7 +13,7 @@ import { VisitStatus } from "../../../shared/models/admin.model";
     <div>
       <div class="page-header">
         <div>
-          <div class="page-title">Visit Statuses</div>
+          <div class="page-title">Appt Statuses</div>
           <div class="page-subtitle">Appointment lifecycle stages</div>
         </div>
         <button class="btn btn-primary" (click)="openModal()">+ Add Status</button>
@@ -67,7 +67,7 @@ import { VisitStatus } from "../../../shared/models/admin.model";
       <div class="crm-overlay">
         <div class="crm-modal modal-sm" (click)="$event.stopPropagation()">
           <div class="modal-header">
-            <h3>{{ editing() ? "Edit Status" : "Add Visit Status" }}</h3>
+            <h3>{{ editing() ? "Edit Status" : "Add Appt Status" }}</h3>
             <button class="close-btn" (click)="closeModal()">✕</button>
           </div>
           <div class="modal-body">
