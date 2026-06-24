@@ -26,7 +26,7 @@ const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","
       <div class="filters">
         <input class="form-control" [(ngModel)]="search"
                (ngModelChange)="doSearch()"
-               placeholder="🔍 Search name, phone, email…"
+               placeholder="🔍 Search name, phone, email, DOB…"
                style="width:260px;"/>
       </div>
 

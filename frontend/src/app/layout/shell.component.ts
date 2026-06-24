@@ -18,7 +18,7 @@ interface NavGroup { label: string; items: NavItem[]; permissions?: string[]; }
       <header class="top-header">
         <a class="logo" routerLink="/">
           <div class="logo-icon">✿</div>
-          <span class="logo-text">Your Own CRM</span>
+          <span class="logo-text">{{ auth.currentUser()?.practiceName || 'Your Own CRM' }}</span>
         </a>
         <div class="hdr-spacer"></div>
         <div class="hdr-user">

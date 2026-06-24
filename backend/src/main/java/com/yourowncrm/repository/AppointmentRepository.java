@@ -16,6 +16,14 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
 
     @Query("""
         SELECT a FROM Appointment a
+        LEFT JOIN FETCH a.customer
+        LEFT JOIN FETCH a.resource
+        LEFT JOIN FETCH a.staffResource
+        LEFT JOIN FETCH a.staff
+        LEFT JOIN FETCH a.location
+        LEFT JOIN FETCH a.visitType
+        LEFT JOIN FETCH a.visitStatus
+        LEFT JOIN FETCH a.invoice
         WHERE a.tenantId = :tenantId
           AND a.apptDate = :date
           AND (:locationId IS NULL OR a.location.id = :locationId)

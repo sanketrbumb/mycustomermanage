@@ -1,6 +1,8 @@
 package com.yourowncrm.controller;
 
+import com.yourowncrm.model.Tenant;
 import com.yourowncrm.model.User;
+import com.yourowncrm.repository.TenantRepository;
 import com.yourowncrm.repository.UserRepository;
 import com.yourowncrm.security.Permission;
 import com.yourowncrm.security.RolePermissionMap;
@@ -31,7 +33,8 @@ import java.util.stream.Collectors;
  *   "email": "jane@spa.com",
  *   "role": "MANAGER",
  *   "canBookAppts": true,
- *   "permissions": ["SCHEDULE_VIEW", "APPOINTMENT_VIEW_ANY", "BILLING_VIEW", ...]
+ *   "permissions": ["SCHEDULE_VIEW", "APPOINTMENT_VIEW_ANY", "BILLING_VIEW", ...],
+ *   "practiceName": "Your Own CRM"
  * }
  */
 @RestController
@@ -41,12 +44,15 @@ public class AuthMeController {
     private final UserRepository    userRepo;
     private final JwtTokenProvider  jwt;
     private final PermissionService permissionService;
+    private final TenantRepository  tenantRepo;
 
     @Autowired
-    public AuthMeController(UserRepository userRepo, JwtTokenProvider jwt, PermissionService permissionService) {
+    public AuthMeController(UserRepository userRepo, JwtTokenProvider jwt,
+                            PermissionService permissionService, TenantRepository tenantRepo) {
         this.userRepo = userRepo;
         this.jwt      = jwt;
         this.permissionService = permissionService;
+        this.tenantRepo = tenantRepo;
     }
 
     @GetMapping("/me")
@@ -58,6 +64,9 @@ public class AuthMeController {
             .filter(u -> u.getTenantId().equals(tenantId))
             .orElseThrow(() -> new RuntimeException("User not found"));
 
+        Tenant tenant = tenantRepo.findById(tenantId)
+            .orElseThrow(() -> new RuntimeException("Tenant not found"));
+
         Set<String> permissions = permissionService.permissionNamesFor(tenantId, userId);
 
         return Map.of(
@@ -68,7 +77,8 @@ public class AuthMeController {
             "email",        user.getEmail() != null ? user.getEmail() : "",
             "role",         user.getRole().name(),
             "canBookAppts", user.isCanBookAppts(),
-            "permissions",  permissions
+            "permissions",  permissions,
+            "practiceName", tenant.getName()
         );
     }
 }

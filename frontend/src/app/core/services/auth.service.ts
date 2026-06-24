@@ -14,6 +14,7 @@ export interface CurrentUser {
   role: "SUPER_ADMIN" | "MANAGER" | "STAFF";
   canBookAppts: boolean;
   permissions: string[];  // Permission enum names from backend
+  practiceName?: string;
 }
 
 /**

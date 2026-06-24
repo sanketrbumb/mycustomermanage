@@ -30,7 +30,8 @@ public class CustomerController {
     public List<Customer> search(
             @RequestHeader("Authorization") String t,
             @RequestParam(defaultValue = "") String q) {
-        return repo.search(tid(t), q, PageRequest.of(0, 50)).getContent();
+        String queryPattern = "%" + q.trim() + "%";
+        return repo.search(tid(t), queryPattern, PageRequest.of(0, 50)).getContent();
     }
 
     @GetMapping("/{id}")

@@ -68,7 +68,7 @@ import { environment } from "../../../environments/environment";
               <label class="form-label">Customer *</label>
               <div style="position:relative;">
                 <input class="form-control" [formControl]="customerSearch"
-                       placeholder="Type last name, first name or phone…"
+                       placeholder="Type name, phone, email, or DOB (YYYY-MM-DD)…"
                        autocomplete="off"
                        (focus)="showCustomerDrop.set(true)"
                        (blur)="onCustomerBlur()"/>

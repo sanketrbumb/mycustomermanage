@@ -5,6 +5,7 @@ import { RouterLink } from "@angular/router";
 import { HttpClient } from "@angular/common/http";
 import { MatSnackBar, MatSnackBarModule } from "@angular/material/snack-bar";
 import { environment } from "../../../../environments/environment";
+import { AuthService } from "../../../core/services/auth.service";
 
 @Component({
   selector: "app-settings",
@@ -65,7 +66,7 @@ export class SettingsComponent implements OnInit {
   saving  = signal(false);
   loading = signal(false);
 
-  constructor(private http: HttpClient, private snack: MatSnackBar) {}
+  constructor(private http: HttpClient, private snack: MatSnackBar, private auth: AuthService) {}
 
   ngOnInit() {
     this.load();
@@ -100,6 +101,7 @@ export class SettingsComponent implements OnInit {
         this.minPassword = res.minPasswordLength;
         this.maxFails = res.maxFailedLogins;
         this.snack.open("Settings saved successfully.", "×", { duration: 3000 });
+        this.auth.loadMe().subscribe();
       },
       error: err => {
         this.saving.set(false);

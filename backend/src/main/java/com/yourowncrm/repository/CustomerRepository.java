@@ -29,10 +29,11 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
             WHERE c.tenant_id = :tenantId
               AND c.active    = TRUE
               AND (
-                    c.first_name ILIKE CONCAT('%', :q, '%')
-                 OR c.last_name  ILIKE CONCAT('%', :q, '%')
-                 OR c.phone      ILIKE CONCAT('%', :q, '%')
-                 OR c.email      ILIKE CONCAT('%', :q, '%')
+                    c.first_name ILIKE :q
+                 OR c.last_name  ILIKE :q
+                 OR c.phone      ILIKE :q
+                 OR c.email      ILIKE :q
+                 OR CAST(c.dob AS text) ILIKE :q
               )
             ORDER BY c.last_name, c.first_name
             """,
@@ -41,10 +42,11 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
             WHERE c.tenant_id = :tenantId
               AND c.active    = TRUE
               AND (
-                    c.first_name ILIKE CONCAT('%', :q, '%')
-                 OR c.last_name  ILIKE CONCAT('%', :q, '%')
-                 OR c.phone      ILIKE CONCAT('%', :q, '%')
-                 OR c.email      ILIKE CONCAT('%', :q, '%')
+                    c.first_name ILIKE :q
+                 OR c.last_name  ILIKE :q
+                 OR c.phone      ILIKE :q
+                 OR c.email      ILIKE :q
+                 OR CAST(c.dob AS text) ILIKE :q
               )
             """,
         nativeQuery = true)
