@@ -2,7 +2,10 @@ import { Component, signal } from "@angular/core";
 import { FormBuilder, ReactiveFormsModule, Validators } from "@angular/forms";
 import { Router } from "@angular/router";
 import { CommonModule } from "@angular/common";
+import { HttpClient } from "@angular/common/http";
+import { debounceTime, distinctUntilChanged } from "rxjs";
 import { AuthService } from "../../core/services/auth.service";
+import { environment } from "../../../environments/environment";
 
 @Component({
   selector: "app-login",
@@ -15,7 +18,7 @@ import { AuthService } from "../../core/services/auth.service";
       <div class="brand-panel">
         <div class="brand-content">
           <div class="brand-logo">✿</div>
-          <h1>Your Own CRM</h1>
+          <h1>{{ practiceName() }}</h1>
           <p>Wellness Practice Management</p>
           <div class="brand-tagline">Appointments · Billing · Reports</div>
         </div>
@@ -272,12 +275,43 @@ export class LoginComponent {
 
   loading = signal(false);
   error   = signal("");
+  practiceName = signal("Your Own CRM");
 
   constructor(
     private fb: FormBuilder,
     private auth: AuthService,
-    private router: Router
-  ) {}
+    private router: Router,
+    private http: HttpClient
+  ) {
+    // Initial fetch for the default slug
+    this.fetchPracticeName(this.form.controls.tenantSlug.value);
+
+    // Watch for slug changes
+    this.form.controls.tenantSlug.valueChanges.pipe(
+      debounceTime(300),
+      distinctUntilChanged()
+    ).subscribe(val => {
+      this.fetchPracticeName(val);
+    });
+  }
+
+  private fetchPracticeName(slug: string) {
+    const clean = (slug || "").trim();
+    if (!clean) {
+      this.practiceName.set("Your Own CRM");
+      return;
+    }
+    this.http.get<{ practiceName: string }>(
+      `${environment.apiUrl}/public/practice-name?slug=${encodeURIComponent(clean)}`
+    ).subscribe({
+      next: res => {
+        this.practiceName.set(res.practiceName || "Your Own CRM");
+      },
+      error: () => {
+        this.practiceName.set("Your Own CRM");
+      }
+    });
+  }
 
   onSubmit() {
     if (this.form.invalid) {

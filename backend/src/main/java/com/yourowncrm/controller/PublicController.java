@@ -46,6 +46,16 @@ public class PublicController {
         return Map.of("slug", normalised, "available", available);
     }
 
+    /** Fetch dynamic practice name by slug for login page */
+    @GetMapping("/practice-name")
+    public Map<String, Object> getPracticeName(@RequestParam String slug) {
+        String normalised = normaliseSlug(slug);
+        String name = tenantRepo.findBySlug(normalised)
+                .map(Tenant::getName)
+                .orElse("Your Own CRM");
+        return Map.of("practiceName", name);
+    }
+
     /**
      * Self-serve tenant registration.
      * Creates a Tenant + SUPER_ADMIN user in a single operation.
