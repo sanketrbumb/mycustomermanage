@@ -57,4 +57,7 @@ public enum Permission {
 
     // ── Subscription / billing (SaaS) ─────────────────────────────────────────
     SUBSCRIPTION_MANAGE,    // change plan, cancel, access billing portal
+
+    // ── Menu customisation ────────────────────────────────────────────────────
+    MODIFY_MENUS,           // customise sidebar menu labels and icons
 }

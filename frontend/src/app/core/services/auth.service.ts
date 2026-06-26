@@ -3,7 +3,8 @@ import { HttpClient } from "@angular/common/http";
 import { Router } from "@angular/router";
 import { environment } from "../../../environments/environment";
 import { tap, map, switchMap } from "rxjs/operators";
-import { IdleService } from "./idle.service";
+import { IdleService }     from "./idle.service";
+import { NavLabelService }  from "./nav-label.service";
 
 export interface CurrentUser {
   id: number;
@@ -16,7 +17,7 @@ export interface CurrentUser {
   canBookAppts: boolean;
   permissions: string[];  // Permission enum names from backend
   practiceName?: string;
-  idleTimeoutMinutes?: number;  // per-tenant idle auto-logout setting
+  idleTimeoutMinutes?: number;
 }
 
 /**
@@ -39,10 +40,10 @@ export class AuthService {
   readonly currentUser = this._user.asReadonly();
   readonly isLoggedIn = computed(() => !!this._token() && !!this._user());
 
-  constructor(private http: HttpClient, private router: Router, private idle: IdleService) {
-    // Break the circular dependency: IdleService calls this callback on timeout
-    this.idle.setLogoutCallback(() => this.logout());
+  constructor(private http: HttpClient, private router: Router,
+              private idle: IdleService, private navLabels: NavLabelService) {
     // Restore user from storage on page reload
+    this.idle.setLogoutCallback(() => this.logout());
     const stored = localStorage.getItem("current_user");
     if (stored) {
       try {
@@ -79,6 +80,7 @@ export class AuthService {
         this._user.set(enriched);
         localStorage.setItem("current_user", JSON.stringify(enriched));
         this.idle.start(enriched.idleTimeoutMinutes ?? 60);
+        this.navLabels.load().subscribe();
         return enriched;
       })
     );

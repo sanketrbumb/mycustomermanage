@@ -184,12 +184,14 @@ const PX_PER_MIN = PX_PER_HR / 60;
                           <div style="position:absolute;left:0;right:0;top:60px;border-top:1px dashed rgba(0,0,0,.08);pointer-events:none;"></div>
                         </div>
                       }
-                      <!-- Appointments — always on top -->
+                      <!-- Appointments — side-by-side when double-booked -->
                       @for (a of apptsByResource(r.id); track a.id) {
                         <div [style.background]="r.colorHex"
                              [style.top.px]="apptTop(a)"
                              [style.height.px]="apptHeight(a)"
-                             style="position:absolute;left:2px;right:2px;border-radius:5px;padding:3px 6px;cursor:pointer;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18);z-index:5;"
+                             [style.left]="apptSlot(apptsByResource(r.id), a).left"
+                             [style.width]="apptSlot(apptsByResource(r.id), a).width"
+                             style="position:absolute;border-radius:5px;padding:3px 6px;cursor:pointer;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18);z-index:5;"
                              (dblclick)="openApptModal(r.id, null, null, a)"
                              (contextmenu)="onCtxMenu($event, a)">
                           <div style="font-size:11px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ a.customerFullName }}</div>
@@ -230,7 +232,9 @@ const PX_PER_MIN = PX_PER_HR / 60;
                         <div [style.background]="staffColor(s.id)"
                              [style.top.px]="apptTop(a)"
                              [style.height.px]="apptHeight(a)"
-                             style="position:absolute;left:2px;right:2px;border-radius:5px;padding:3px 6px;cursor:pointer;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18);z-index:5;"
+                             [style.left]="apptSlot(apptsByStaff(s.id), a).left"
+                             [style.width]="apptSlot(apptsByStaff(s.id), a).width"
+                             style="position:absolute;border-radius:5px;padding:3px 6px;cursor:pointer;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18);z-index:5;"
                              (dblclick)="openApptModal(null, s.id, null, a)"
                              (contextmenu)="onCtxMenu($event, a)">
                           <div style="font-size:11px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ a.customerFullName }}</div>
@@ -688,9 +692,60 @@ export class ScheduleComponent implements OnInit, OnDestroy {
   selectAllRes(on: boolean)   { const v={...this.state.visibleResources()}; this.filteredResources().forEach(r=>{v[r.id]=on;}); this.state.visibleResources.set(v); }
   selectAllStaff(on: boolean) { const v={...this.state.visibleStaff()};    this.activeStaff().forEach(s=>{v[s.id]=on;});          this.state.visibleStaff.set(v); }
 
-  // ── Appointment filters ───────────────────────────────────────
-  apptsByResource(resId: number) { return this.appointments().filter(a => a.resourceId === resId); }
-  apptsByStaff(staffId: number)  { return this.appointments().filter(a => a.staffResourceId===staffId||a.staffId===staffId); }
+  // ── Appointment filters ──────────────────────────────────────────────────────
+  // An appointment appears under the entity that was selected as the booking
+  // resource in the appointment dialog:
+  //   - resourceId set → physical resource column (Spa Room, Treatment Table etc.)
+  //   - staffResourceId set (staff acting as resource), no resourceId → staff column
+  //   - staffId only → staff column
+  // An appointment NEVER renders in two columns.
+  apptsByResource(resId: number): Appointment[] {
+    return this.appointments().filter(a =>
+      a.resourceId === resId                        // booked under this physical resource
+    );
+  }
+  apptsByStaff(staffId: number): Appointment[] {
+    return this.appointments().filter(a =>
+      !a.resourceId &&                              // NOT booked under a physical resource
+      (a.staffResourceId === staffId || a.staffId === staffId)
+    );
+  }
+
+  // ── Double-booking layout: appointments in the same slot side-by-side ────────
+  // Groups overlapping appointments and assigns each a horizontal slot.
+  // Returns {left, width} as percentage strings for the absolute-positioned card.
+  apptSlot(appointments: Appointment[], appt: Appointment): { left: string; width: string } {
+    if (appointments.length <= 1) return { left: '2px', width: 'calc(100% - 4px)' };
+
+    // Find all appointments that overlap with this one
+    const overlaps = appointments.filter(b => {
+      if (b.id === appt.id) return false;
+      const aStart = this.timeToMin(appt.startTime);
+      const aEnd   = aStart + (appt.durationMin ?? 60);
+      const bStart = this.timeToMin(b.startTime);
+      const bEnd   = bStart + (b.durationMin ?? 60);
+      return aStart < bEnd && bStart < aEnd;  // overlap condition
+    });
+
+    if (!overlaps.length) return { left: '2px', width: 'calc(100% - 4px)' };
+
+    // Sort all overlapping appointments (including this one) by id for stable ordering
+    const group = [appt, ...overlaps].sort((a, b) => a.id - b.id);
+    const slot  = group.findIndex(a => a.id === appt.id);
+    const total = group.length;
+    const pct   = 100 / total;
+    const gap   = 2;
+    return {
+      left:  `calc(${slot * pct}% + ${gap}px)`,
+      width: `calc(${pct}% - ${gap * 2}px)`
+    };
+  }
+
+  timeToMin(t: string): number {
+    if (!t) return 0;
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  }
   weekApptsByDay(dateStr: string) {
     const entity = this.weekEntity(); if (!entity) return [];
     return this.weekAppointments().filter(a => {

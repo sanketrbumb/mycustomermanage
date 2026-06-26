@@ -58,7 +58,7 @@ import { User, Location } from "../../../shared/models/admin.model";
                 </td>
                 <td>{{ u.username }}</td>
                 <td>
-                  <span class="role-badge" [ngClass]="roleCss(u.role)">{{ u.roleName || u.role }}</span>
+                  <span class="role-badge" [ngClass]="roleCss(u.role)">{{ roleLabel(u.roleName || u.role) }}</span>
                 </td>
                 <td>{{ locationName(u.locationId) }}</td>
                 <td>
@@ -265,6 +265,17 @@ export class StaffListComponent implements OnInit {
       STAFF: "role-staff", RESOURCE: "role-resource"
     };
     return m[role] ?? "badge-neutral";
+  }
+
+  /** Human-readable role label — converts SUPER_ADMIN → Super Admin etc. */
+  roleLabel(role: string): string {
+    const labels: Record<string, string> = {
+      SUPER_ADMIN: "Super Admin",
+      MANAGER:     "Manager",
+      STAFF:       "Staff",
+      RESOURCE:    "Resource",
+    };
+    return labels[role] ?? role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
   locationName(id?: number | null): string {

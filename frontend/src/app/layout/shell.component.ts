@@ -2,7 +2,8 @@ import { Component, computed, signal } from "@angular/core";
 import { Router, RouterLink, RouterLinkActive, RouterOutlet, NavigationEnd } from "@angular/router";
 import { CommonModule } from "@angular/common";
 import { filter } from "rxjs/operators";
-import { AuthService } from "../core/services/auth.service";
+import { AuthService }      from "../core/services/auth.service";
+import { NavLabelService }  from "../core/services/nav-label.service";
 
 interface NavItem  { icon: string; label: string; route: string; permissions?: string[]; }
 interface NavGroup { label: string; items: NavItem[]; permissions?: string[]; }
@@ -126,20 +127,24 @@ interface NavGroup { label: string; items: NavItem[]; permissions?: string[]; }
   `]
 })
 export class ShellComponent {
-  private readonly GROUPS: NavGroup[] = [
+  // DEFAULT_NAV defines the built-in structure: group, icon, label, route, permissions.
+  // NavLabelService overrides label/icon per-tenant; the shell calls nav.label(route, default)
+  // so every item dynamically reflects the tenant's customisation.
+  private readonly DEFAULT_NAV: NavGroup[] = [
     {
       label: "Operations",
       items: [
-        { icon: "📅", label: "Schedule", route: "/schedule", permissions: ["SCHEDULE_VIEW"] },
+        { icon: "📅", label: "Schedule",   route: "/schedule",         permissions: ["SCHEDULE_VIEW"] },
+        { icon: "👥", label: "Customers",  route: "/admin/customers",  permissions: ["CUSTOMER_VIEW"] },
       ]
     },
     {
       label: "Billing",
       items: [
-        { icon: "🧾", label: "Invoices",  route: "/billing/invoices",  permissions: ["BILLING_VIEW"] },
-        { icon: "💳", label: "Payments",  route: "/billing/payments",  permissions: ["BILLING_VIEW"] },
-        { icon: "↩", label: "Refunds",   route: "/billing/refunds",   permissions: ["BILLING_VIEW"] },
-        { icon: "📊", label: "Reports",   route: "/reports",           permissions: ["REPORT_VIEW"] },
+        { icon: "🧾", label: "Invoices",   route: "/billing/invoices",  permissions: ["BILLING_VIEW"] },
+        { icon: "💳", label: "Payments",   route: "/billing/payments",  permissions: ["BILLING_VIEW"] },
+        { icon: "↩",  label: "Refunds",    route: "/billing/refunds",   permissions: ["BILLING_VIEW"] },
+        { icon: "📊", label: "Reports",    route: "/reports",           permissions: ["REPORT_VIEW"] },
       ]
     },
     {
@@ -147,9 +152,8 @@ export class ShellComponent {
       items: [
         { icon: "👤", label: "Staff",          route: "/admin/staff",          permissions: ["USER_VIEW"] },
         { icon: "🏠", label: "Resources",      route: "/admin/resources",      permissions: ["RESOURCE_MANAGE"] },
-        { icon: "👥", label: "Customers",      route: "/admin/customers",      permissions: ["CUSTOMER_VIEW"] },
-        { icon: "🏷️", label: "Appt Types",    route: "/admin/visit-types",    permissions: ["VISIT_TYPE_MANAGE"] },
-        { icon: "🔄", label: "Appt Statuses", route: "/admin/visit-statuses", permissions: ["VISIT_TYPE_MANAGE"] },
+        { icon: "🏷️", label: "Appt Types",     route: "/admin/visit-types",    permissions: ["VISIT_TYPE_MANAGE"] },
+        { icon: "🔄", label: "Appt Status",    route: "/admin/visit-statuses", permissions: ["VISIT_TYPE_MANAGE"] },
         { icon: "📍", label: "Locations",      route: "/admin/locations",      permissions: ["LOCATION_MANAGE"] },
         { icon: "🕐", label: "Resource Hours", route: "/admin/resource-hours", permissions: ["RESOURCE_MANAGE"] },
         { icon: "🔐", label: "Roles",          route: "/admin/roles",          permissions: ["SUBSCRIPTION_MANAGE"] },
@@ -160,10 +164,16 @@ export class ShellComponent {
   ];
 
   visibleGroups = computed(() => {
-    return this.GROUPS
+    return this.DEFAULT_NAV
       .map(g => ({
         ...g,
-        items: g.items.filter(i => !i.permissions || this.auth.canAny(...i.permissions))
+        items: g.items
+          .filter(i => !i.permissions || this.auth.canAny(...i.permissions))
+          .map(i => ({
+            ...i,
+            label: this.nav.label(i.route, i.label),
+            icon:  this.nav.icon(i.route, i.icon),
+          }))
       }))
       .filter(g => g.items.length > 0);
   });
@@ -173,5 +183,5 @@ export class ShellComponent {
     return name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
   });
 
-  constructor(public auth: AuthService, private router: Router) {}
+  constructor(public auth: AuthService, private router: Router, public nav: NavLabelService) {}
 }

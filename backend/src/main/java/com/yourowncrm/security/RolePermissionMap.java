@@ -42,7 +42,8 @@ public final class RolePermissionMap {
             Permission.CUSTOMER_EDIT,
             Permission.USER_VIEW,            // can see staff list, not manage it
             Permission.REPORT_VIEW,
-            Permission.SETTINGS_VIEW         // can view, not edit
+            Permission.SETTINGS_VIEW,        // can view, not edit
+            Permission.MODIFY_MENUS
         ));
 
         // ── STAFF — own appointments, own collections, customer lookup only ──
