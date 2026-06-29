@@ -46,7 +46,7 @@ const NAV_DEFAULTS = [
         <button class="tab-btn" [class.active]="tab() === 'security'" (click)="tab.set('security')">
           🔒 Security Policy
         </button>
-        @if (auth.can('MODIFY_MENUS')) {
+        @if (auth.can('MODIFY_MENUS') || auth.isSuperAdmin()) {
           <button class="tab-btn" [class.active]="tab() === 'menus'"  (click)="openMenuTab()">
             🏷️ Menu Labels
           </button>

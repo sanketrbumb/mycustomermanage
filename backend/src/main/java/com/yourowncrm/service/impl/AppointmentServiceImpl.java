@@ -281,6 +281,8 @@ public class AppointmentServiceImpl implements AppointmentService {
         if (!effective.isOpen()) {
             return AvailabilityConflict.builder()
                     .available(false)
+                    .conflictType("OUTSIDE_HOURS")
+                    .overridable(true)
                     .reason("Resource is not scheduled to work on " + dow)
                     .build();
         }
@@ -288,6 +290,8 @@ public class AppointmentServiceImpl implements AppointmentService {
                 req.getEndTime().isAfter(effective.getCloseTime())) {
             return AvailabilityConflict.builder()
                     .available(false)
+                    .conflictType("OUTSIDE_HOURS")
+                    .overridable(true)
                     .reason("Outside working hours ("
                             + effective.getOpenTime() + " - " + effective.getCloseTime() + ")")
                     .build();

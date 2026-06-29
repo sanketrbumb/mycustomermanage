@@ -52,6 +52,7 @@ export class AuthService {
           parsed.fullName = `${parsed.firstName} ${parsed.lastName}`.trim();
         }
         this._user.set(parsed);
+        this.idle.start(parsed.idleTimeoutMinutes ?? 60);
       } catch {
         this.logout();
       }

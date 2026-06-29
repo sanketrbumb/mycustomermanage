@@ -205,17 +205,6 @@ import { environment } from "../../../environments/environment";
             </div>
           </div>
 
-          <!-- Conflict / warning alerts -->
-          @if (conflictMsg()) {
-            <div class="conflict-alert">
-              <span>⚠</span> {{ conflictMsg() }}
-              @if (conflictIsWarning()) {
-                <button class="btn btn-sm btn-outline" style="margin-left:auto;"
-                        (click)="proceedAnyway()">Book Anyway</button>
-              }
-            </div>
-          }
-
         </form>
       </div>
 
@@ -236,14 +225,11 @@ import { environment } from "../../../environments/environment";
   `,
   styles: [`
     .appt-modal { display:flex;flex-direction:column;max-height:90vh; }
-    .modal-header { padding:18px 24px 14px;border-bottom:1px solid var(--stone-mid);display:flex;align-items:center;justify-content:space-between;flex-shrink:0; }
+    .modal-header { padding:11px 24px 8px;border-bottom:1px solid var(--stone-mid);display:flex;align-items:center;justify-content:space-between;flex-shrink:0; }
     .modal-header h3 { font-family:var(--font-display);font-size:22px;color:var(--jade); }
     .modal-body { padding:20px 24px;overflow-y:auto;flex:1; }
     .modal-footer { padding:14px 24px;border-top:1px solid var(--stone-mid);display:flex;align-items:center;gap:8px;flex-shrink:0; }
     .allergy-alert { display:flex;align-items:center;gap:8px;background:#fef0d8;border:1px solid #f5c87a;border-radius:var(--radius);padding:7px 12px;font-size:12px;color:#7a4800;margin-top:6px; }
-    .conflict-alert { display:flex;align-items:center;gap:8px;border-radius:var(--radius);padding:10px 14px;font-size:13px;margin-top:12px; }
-    .conflict-alert.is-warning { background:#fef0d8;border:1px solid #f5c87a;color:#7a4800; }
-    .conflict-alert.is-error   { background:#fde8e6;border:1px solid #f5c8c8;color:var(--danger); }
     .btn-success-solid { background:var(--success);color:#fff;border-color:var(--success); }
     .btn-success-solid:hover { opacity:.9; }
     .ac-dropdown { position:absolute;top:100%;left:0;right:0;background:var(--white);border:1.5px solid var(--jade-light);border-radius:var(--radius);box-shadow:var(--shadow-md);z-index:200;max-height:220px;overflow-y:auto; }
@@ -308,8 +294,6 @@ export class AppointmentDialogComponent implements OnInit {
   saving    = signal(false);
   checking  = signal(false);
   paidAmount = signal<number | null>(null); // tracks whether payment was collected this session
-  conflictMsg = signal("");
-  conflictIsWarning = signal(false);
   private pendingPayload: any = null;  // stored when user sees warning and hits "Book Anyway"
 
   resourceTypeTag = signal("");
@@ -712,7 +696,7 @@ export class AppointmentDialogComponent implements OnInit {
       },
       error: e => {
         this.saving.set(false);
-        this.conflictMsg.set(e.error?.message ?? "Could not save appointment.");
+        this.snack.open(e.error?.message ?? "Could not save appointment.", "×", { duration: 5000 });
       }
     });
   }
@@ -779,8 +763,7 @@ export class AppointmentDialogComponent implements OnInit {
       ok = false;
     }
     if (!this.selectedLocationId) {
-      this.conflictIsWarning.set(false);
-      this.conflictMsg.set("Location is required.");
+      this.snack.open("Location is required.", "×", { duration: 3500 });
       ok = false;
     }
     return ok;
@@ -794,7 +777,6 @@ export class AppointmentDialogComponent implements OnInit {
 
     const payload = this.buildPayload();
     this.saving.set(true);
-    this.conflictMsg.set("");
 
     // Skip availability re-check here — if the user already passed it via Save,
     // or hasn't changed anything that affects scheduling, just persist current values.
@@ -817,7 +799,7 @@ export class AppointmentDialogComponent implements OnInit {
       },
       error: e => {
         this.saving.set(false);
-        this.conflictMsg.set(e.error?.message ?? "Could not save appointment.");
+        this.snack.open(e.error?.message ?? "Could not save appointment.", "×", { duration: 5000 });
       }
     });
   }
@@ -855,8 +837,6 @@ export class AppointmentDialogComponent implements OnInit {
     const payload = this.buildPayload();
     this.pendingPayload = payload;
     this.checking.set(true);
-    this.conflictMsg.set("");
-    this.conflictIsWarning.set(false);
 
     this.apptSvc.checkAvailability(payload).subscribe({
       next: conflict => {
@@ -870,17 +850,17 @@ export class AppointmentDialogComponent implements OnInit {
           const label = icons[conflict.conflictType ?? ""] ?? "⚠ Warning";
 
           if (conflict.overridable) {
-            this.conflictIsWarning.set(true);
-            this.conflictMsg.set(
-              `${label}: ${conflict.reason}` +
+            const msg = `${label}: ${conflict.reason}` +
               (conflict.conflictingCustomerName
                 ? ` (${conflict.conflictingCustomerName} at ${conflict.startTime ?? ""})`
-                : "") +
-              `. Click "Book Anyway" to proceed.`
-            );
+                : "");
+            
+            const snackRef = this.snack.open(msg, "Book Anyway", { duration: 10000 });
+            snackRef.onAction().subscribe(() => {
+              this.proceedAnyway();
+            });
           } else {
-            this.conflictIsWarning.set(false);
-            this.conflictMsg.set(conflict.reason ?? "This slot is not available.");
+            this.snack.open(conflict.reason ?? "This slot is not available.", "×", { duration: 5000 });
           }
           return;
         }
@@ -888,10 +868,9 @@ export class AppointmentDialogComponent implements OnInit {
       },
       error: e => {
         this.checking.set(false);
-        // Surface the error instead of leaving the dialog silently open
-        this.conflictIsWarning.set(false);
-        this.conflictMsg.set(
-          e.error?.message ?? "Could not check availability. Please try again."
+        this.snack.open(
+          e.error?.message ?? "Could not check availability. Please try again.",
+          "×", { duration: 5000 }
         );
       }
     });
@@ -901,8 +880,6 @@ export class AppointmentDialogComponent implements OnInit {
     if (!this.pendingPayload) return;
     this.pendingPayload.allowDoubleBook   = true;
     this.pendingPayload.allowOutsideHours = true;
-    this.conflictMsg.set("");
-    this.conflictIsWarning.set(false);
     this.doSave(this.pendingPayload);
   }
 
@@ -925,7 +902,10 @@ export class AppointmentDialogComponent implements OnInit {
         }
         this.dialogRef.close(true);
       },
-      error: e  => { this.saving.set(false); this.conflictMsg.set(e.error?.message ?? "Could not save."); }
+      error: e  => {
+        this.saving.set(false);
+        this.snack.open(e.error?.message ?? "Could not save.", "×", { duration: 5000 });
+      }
     });
   }
 }
