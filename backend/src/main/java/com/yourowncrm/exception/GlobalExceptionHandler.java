@@ -26,6 +26,13 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(422, ex.getMessage()));
     }
 
+    @ExceptionHandler(com.yourowncrm.security.RateLimiter.RateLimitException.class)
+    public ResponseEntity<ErrorResponse> handleRateLimit(com.yourowncrm.security.RateLimiter.RateLimitException ex) {
+        slf4j.warn("RATE_LIMIT_EXCEEDED: {}", ex.getMessage());
+        return ResponseEntity.status(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
+                .body(new ErrorResponse(429, ex.getMessage()));
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex) {
         slf4j.warn("RESOURCE_NOT_FOUND: {}", ex.getMessage());

@@ -23,6 +23,9 @@ app:
     secret: YOUR_JWT_SECRET_MIN_32_CHARS_HERE
     expiration-ms: 86400000
   cors:
+    # LOCAL DEV: http://localhost:4200
+    # PRODUCTION: set to your real domain, e.g. https://yourdomain.com
+    # Multiple origins (comma-separated): https://yourdomain.com,https://www.yourdomain.com
     allowed-origins: http://localhost:4200
 
 logging:

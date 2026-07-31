@@ -20,8 +20,8 @@
 set -euo pipefail
 
 # ── EDIT THESE BEFORE RUNNING ──────────────────────────────────────
-DOMAIN="yourdomain.com"            # Your domain (must point to this server)
-DB_PASSWORD="CHANGE_THIS_NOW"      # Strong database password
+DOMAIN="busaalcsm.com"            # Your domain (must point to this server)
+DB_PASSWORD="jaihO@9094"      # Strong database password
 JWT_SECRET="$(openssl rand -base64 32)"  # Auto-generated JWT secret
 APP_DIR="/opt/yourowncrm"
 JAR_NAME="yourowncrm-backend.jar"

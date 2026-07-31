@@ -1,11 +1,13 @@
 package com.yourowncrm.controller;
 
 import com.yourowncrm.exception.BusinessException;
+import com.yourowncrm.security.RateLimiter;
 import com.yourowncrm.model.Tenant;
 import com.yourowncrm.model.User;
 import com.yourowncrm.model.enums.UserRole;
 import com.yourowncrm.repository.TenantRepository;
 import com.yourowncrm.repository.UserRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.slf4j.Logger;
@@ -28,19 +30,25 @@ public class PublicController {
     private final TenantRepository tenantRepo;
     private final UserRepository   userRepo;
     private final PasswordEncoder  encoder;
+    private final RateLimiter      rateLimiter;
 
     @Autowired
     public PublicController(TenantRepository tenantRepo,
                             UserRepository userRepo,
-                            PasswordEncoder encoder) {
-        this.tenantRepo = tenantRepo;
-        this.userRepo   = userRepo;
-        this.encoder    = encoder;
+                            PasswordEncoder encoder,
+                            RateLimiter rateLimiter) {
+        this.tenantRepo   = tenantRepo;
+        this.userRepo     = userRepo;
+        this.encoder      = encoder;
+        this.rateLimiter  = rateLimiter;
     }
 
     /** Real-time slug availability check — called as the user types in the signup form */
     @GetMapping("/check-slug")
-    public Map<String, Object> checkSlug(@RequestParam String slug) {
+    public Map<String, Object> checkSlug(@RequestParam String slug,
+                                        HttpServletRequest request) {
+        // 30 slug checks per minute per IP
+        rateLimiter.check("slug-check", getClientIp(request), 30, 60);
         String normalised = normaliseSlug(slug);
         boolean available = !tenantRepo.existsBySlug(normalised);
         return Map.of("slug", normalised, "available", available);
@@ -63,7 +71,10 @@ public class PublicController {
      */
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
-    public Map<String, Object> signup(@Valid @RequestBody SignupRequest req) {
+    public Map<String, Object> signup(@Valid @RequestBody SignupRequest req,
+                                      HttpServletRequest request) {
+        // 5 signup attempts per hour per IP — prevents automated tenant spam
+        rateLimiter.check("signup", getClientIp(request), 5, 3600);
         String slug = normaliseSlug(req.getOrgSlug());
 
         if (slug.length() < 3) {
@@ -111,6 +122,16 @@ public class PublicController {
             "username", admin.getUsername(),
             "message",  "Account created successfully. You can now log in."
         );
+    }
+
+    /** Extract real client IP, respecting X-Forwarded-For from OCI Load Balancer */
+    private String getClientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            // X-Forwarded-For can be a comma-separated list; take the first (original client)
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 
     /** Converts any user input into a safe org slug */
