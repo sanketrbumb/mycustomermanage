@@ -41,14 +41,14 @@ import { environment } from "../../../../environments/environment";
           </thead>
           <tbody>
             @for (c of customers(); track c.id) {
-              <tr>
+              <tr [class.inactive-row]="!c.active">
                 <td><strong>{{ c.lastName }}, {{ c.firstName }}</strong></td>
                 <td>{{ c.dob ? (c.dob | date:"mediumDate") : "—" }}</td>
                 <td>{{ c.phone || "—" }}</td>
                 <td>{{ c.email || "—" }}</td>
                 <td>{{ c.membershipType || "None" }}</td>
                 <td>
-                  <span class="badge" [ngClass]="c.active ? 'badge-success' : 'badge-neutral'">
+                  <span class="badge" [ngClass]="c.active ? 'badge-success' : 'badge-danger'">
                     {{ c.active ? "Active" : "Inactive" }}
                   </span>
                 </td>
@@ -511,6 +511,9 @@ import { environment } from "../../../../environments/environment";
       .pg4 { grid-template-columns: 1fr 1fr; }
       .pg2 { grid-template-columns: 1fr; }
     }
+    .inactive-row {
+      opacity: 0.6;
+    }
   `]
 })
 export class CustomerListComponent implements OnInit {
@@ -583,22 +586,22 @@ export class CustomerListComponent implements OnInit {
     if (c) {
       this.form.patchValue({
         firstName:        c.firstName,
-        middleName:       (c as any).middleName ?? "",
+        middleName:       c.middleName ?? "",
         lastName:         c.lastName,
-        preferredName:    (c as any).preferredName ?? "",
+        preferredName:    c.preferredName ?? "",
         dob:              c.dob ?? null,
         gender:           c.gender ?? "Female",
         phone:            c.phone ?? "",
         email:            c.email ?? "",
         address1:         c.address1 ?? "",
-        address2:         (c as any).address2 ?? "",
+        address2:         c.address2 ?? "",
         city:             c.city ?? "",
         state:            c.state ?? "",
         zip:              c.zip ?? "",
         membershipType:   c.membershipType ?? "None",
         referralSource:   c.referralSource ?? "",
         emergencyContact: c.emergencyContact ?? "",
-        emergencyPhone:   (c as any).emergencyPhone ?? "",
+        emergencyPhone:   c.emergencyPhone ?? "",
         allergies:        c.allergies ?? "",
         consentOnFile:    c.consentOnFile,
         active:           c.active,

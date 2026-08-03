@@ -8,12 +8,15 @@ public class Customer extends BaseEntity {
     @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id;
     @Column(name="tenant_id", nullable=false) private UUID tenantId;
     @Column(name="first_name", nullable=false, length=80) private String firstName;
+    @Column(name="middle_name", length=80) private String middleName;
     @Column(name="last_name", nullable=false, length=80) private String lastName;
+    @Column(name="preferred_name", length=80) private String preferredName;
     @Column(length=120) private String email;
     @Column(length=20) private String phone;
     private LocalDate dob;
     @Column(length=20) private String gender;
     private String address1;
+    private String address2;
     private String city;
     @Column(length=2) private String state;
     @Column(length=10) private String zip;
@@ -33,8 +36,12 @@ public class Customer extends BaseEntity {
     public void setTenantId(UUID v) { this.tenantId=v; }
     public String getFirstName() { return firstName; }
     public void setFirstName(String v) { this.firstName=v; }
+    public String getMiddleName() { return middleName; }
+    public void setMiddleName(String v) { this.middleName=v; }
     public String getLastName() { return lastName; }
     public void setLastName(String v) { this.lastName=v; }
+    public String getPreferredName() { return preferredName; }
+    public void setPreferredName(String v) { this.preferredName=v; }
     public String getEmail() { return email; }
     public void setEmail(String v) { this.email=v; }
     public String getPhone() { return phone; }
@@ -45,6 +52,8 @@ public class Customer extends BaseEntity {
     public void setGender(String v) { this.gender=v; }
     public String getAddress1() { return address1; }
     public void setAddress1(String v) { this.address1=v; }
+    public String getAddress2() { return address2; }
+    public void setAddress2(String v) { this.address2=v; }
     public String getCity() { return city; }
     public void setCity(String v) { this.city=v; }
     public String getState() { return state; }

@@ -27,10 +27,11 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
         value = """
             SELECT * FROM customers c
             WHERE c.tenant_id = :tenantId
-              AND c.active    = TRUE
               AND (
                     c.first_name ILIKE :q
+                 OR c.middle_name ILIKE :q
                  OR c.last_name  ILIKE :q
+                 OR c.preferred_name ILIKE :q
                  OR c.phone      ILIKE :q
                  OR c.email      ILIKE :q
                  OR CAST(c.dob AS text) ILIKE :q
@@ -40,10 +41,11 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
         countQuery = """
             SELECT COUNT(*) FROM customers c
             WHERE c.tenant_id = :tenantId
-              AND c.active    = TRUE
               AND (
                     c.first_name ILIKE :q
+                 OR c.middle_name ILIKE :q
                  OR c.last_name  ILIKE :q
+                 OR c.preferred_name ILIKE :q
                  OR c.phone      ILIKE :q
                  OR c.email      ILIKE :q
                  OR CAST(c.dob AS text) ILIKE :q

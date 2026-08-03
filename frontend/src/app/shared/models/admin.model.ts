@@ -60,18 +60,22 @@ export interface Location {
 export interface Customer {
   id: number;
   firstName: string;
+  middleName?: string;
   lastName: string;
+  preferredName?: string;
   email?: string;
   phone?: string;
   dob?: string;
   gender?: string;
   address1?: string;
+  address2?: string;
   city?: string;
   state?: string;
   zip?: string;
   membershipType?: string;
   referralSource?: string;
   emergencyContact?: string;
+  emergencyPhone?: string;
   allergies?: string;
   consentOnFile: boolean;
   active: boolean;
