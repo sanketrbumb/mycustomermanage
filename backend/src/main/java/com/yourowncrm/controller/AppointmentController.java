@@ -11,6 +11,9 @@ import com.yourowncrm.dto.response.AppointmentResponse;
 import com.yourowncrm.dto.response.AvailabilityConflict;
 import com.yourowncrm.security.JwtTokenProvider;
 import com.yourowncrm.service.AppointmentService;
+import com.yourowncrm.model.Appointment;
+import com.yourowncrm.exception.ResourceNotFoundException;
+import org.springframework.transaction.annotation.Transactional;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -160,6 +163,7 @@ public class AppointmentController {
      * The VISIT_TYPE charge is managed automatically by the appointment service
      * and is never touched here.
      */
+    @Transactional
     @PutMapping("/{id}/charges")
     public List<ApptCharge> saveCharges(
             @RequestHeader("Authorization") String token,
@@ -184,6 +188,32 @@ public class AppointmentController {
             c.setSortOrder((short) i);
             saved.add(chargeRepo.save(c));
         }
+
+        // Fetch the base (VISIT_TYPE) price
+        BigDecimal basePrice = chargeRepo.findByTenantIdAndAppointmentIdOrderBySortOrderAsc(tenantId, id)
+            .stream()
+            .filter(c -> "VISIT_TYPE".equals(c.getSource()))
+            .map(ApptCharge::getUnitPrice)
+            .findFirst()
+            .orElse(BigDecimal.ZERO);
+
+        // Sum up the new ADDITIONAL charges from the "saved" list
+        BigDecimal additionalSum = saved.stream()
+            .map(c -> c.getUnitPrice().multiply(c.getQuantity()))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // New total is basePrice + additionalSum
+        BigDecimal newTotal = basePrice.add(additionalSum);
+
+        System.out.println("saveCharges: basePrice=" + basePrice + ", additionalSum=" + additionalSum + ", newTotal=" + newTotal);
+
+        // Load the appointment, update total charge, and save it
+        Appointment appt = apptRepo.findById(id)
+            .filter(a -> a.getTenantId().equals(tenantId))
+            .orElseThrow(() -> new ResourceNotFoundException("Appointment", id));
+        appt.setChargeAmount(newTotal);
+        apptRepo.save(appt);
+
         return chargeRepo.findByTenantIdAndAppointmentIdOrderBySortOrderAsc(tenantId, id);
     }
 

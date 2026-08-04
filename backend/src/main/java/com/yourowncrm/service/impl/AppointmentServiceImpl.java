@@ -348,13 +348,24 @@ public class AppointmentServiceImpl implements AppointmentService {
      * visit type and charge amount.  Called after every create/update save.
      */
     private void syncVisitTypeCharge(Appointment appt) {
+        // Calculate sum of additional charges first
+        BigDecimal additionalSum = apptChargeRepo.findByTenantIdAndAppointmentIdOrderBySortOrderAsc(appt.getTenantId(), appt.getId())
+            .stream()
+            .filter(c -> "ADDITIONAL".equals(c.getSource()))
+            .map(c -> c.getUnitPrice().multiply(c.getQuantity()))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         apptChargeRepo.deleteByAppointmentIdAndSource(appt.getId(), "VISIT_TYPE");
         VisitType vt = appt.getVisitType();
         if (vt == null) return;
 
+        // Base price = appt.getChargeAmount() - additionalSum
         BigDecimal price = Optional.ofNullable(appt.getChargeAmount())
+            .map(a -> a.subtract(additionalSum))
             .filter(a -> a.compareTo(BigDecimal.ZERO) > 0)
             .orElse(vt.getDefaultPrice() != null ? vt.getDefaultPrice() : BigDecimal.ZERO);
+
+        System.out.println("syncVisitTypeCharge: apptId=" + appt.getId() + ", appt.chargeAmount=" + appt.getChargeAmount() + ", additionalSum=" + additionalSum + ", basePrice=" + price);
 
         ApptCharge charge = new ApptCharge();
         charge.setTenantId(appt.getTenantId());
